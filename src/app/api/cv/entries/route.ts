@@ -1,0 +1,82 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import prisma from '@/lib/prisma';
+
+// GET all entries (optionally filtered by category)
+export async function GET(request: NextRequest) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const categoryId = searchParams.get('categoryId');
+
+    const cv = await prisma.cV.findUnique({
+        where: { userId: session.user.id },
+        include: {
+            categories: {
+                where: categoryId ? { id: categoryId } : undefined,
+                include: {
+                    entries: {
+                        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+                    },
+                },
+            },
+        },
+    });
+
+    const entries = cv?.categories.flatMap((cat) => cat.entries) || [];
+    return NextResponse.json(entries);
+}
+
+// POST create a new entry
+export async function POST(request: NextRequest) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { categoryId, title, description, date, endDate, location, url, sourceType, sourceData } = await request.json();
+
+    if (!categoryId || !title) {
+        return NextResponse.json({ error: 'categoryId and title are required' }, { status: 400 });
+    }
+
+    // Verify ownership of category
+    const category = await prisma.category.findFirst({
+        where: {
+            id: categoryId,
+            cv: { userId: session.user.id },
+        },
+    });
+
+    if (!category) {
+        return NextResponse.json({ error: 'Category not found' }, { status: 404 });
+    }
+
+    // Get current max displayOrder
+    const maxOrder = await prisma.entry.findFirst({
+        where: { categoryId },
+        orderBy: { displayOrder: 'desc' },
+        select: { displayOrder: true },
+    });
+
+    const entry = await prisma.entry.create({
+        data: {
+            categoryId,
+            title,
+            description,
+            date: date ? new Date(date) : null,
+            endDate: endDate ? new Date(endDate) : null,
+            location,
+            url,
+            sourceType: sourceType || 'manual',
+            sourceData,
+            displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
+        },
+    });
+
+    return NextResponse.json(entry, { status: 201 });
+}

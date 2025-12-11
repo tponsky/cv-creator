@@ -1,0 +1,178 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String    // bcrypt hashed
+  institution   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  cv              CV?
+  preferences     UserPreferences?
+  pendingEntries  PendingEntry[]
+  sessions        Session[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// CV STRUCTURE
+// ============================================
+
+model CV {
+  id         String     @id @default(cuid())
+  userId     String     @unique
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String     @default("Curriculum Vitae")
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  
+  // Relations
+  categories Category[]
+}
+
+model Category {
+  id           String   @id @default(cuid())
+  cvId         String
+  cv           CV       @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  name         String
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  entries Entry[]
+
+  @@index([cvId])
+}
+
+model Entry {
+  id          String    @id @default(cuid())
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  title       String
+  description String?   @db.Text
+  date        DateTime?
+  endDate     DateTime? // For ongoing positions/roles
+  location    String?
+  url         String?
+  
+  // Source tracking for AI learning
+  sourceType  String    @default("manual") // 'manual' | 'pubmed' | 'calendar' | 'email' | 'link'
+  sourceData  Json?     // Raw source data for learning
+  
+  displayOrder Int      @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([categoryId])
+}
+
+// ============================================
+// PENDING ENTRIES (AI-suggested, awaiting review)
+// ============================================
+
+model PendingEntry {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Suggested data
+  suggestedCategory String?
+  title             String
+  description       String?  @db.Text
+  date              DateTime?
+  location          String?
+  url               String?
+  
+  // Source info
+  sourceType        String   // 'pubmed' | 'calendar' | 'email' | 'link'
+  sourceData        Json     // Original raw data
+  
+  // AI metadata
+  aiConfidence      Float?   // 0-1 confidence score
+  aiReasoning       String?  @db.Text
+  
+  // Status
+  status            String   @default("pending") // 'pending' | 'accepted' | 'rejected' | 'edited'
+  createdAt         DateTime @default(now())
+  reviewedAt        DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// USER PREFERENCES & LEARNING
+// ============================================
+
+model UserPreferences {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // P&T Requirements
+  ptRequirements   Json?    // Institution-specific format requirements
+  
+  // Bio generation preferences
+  bioStyle         String?  @default("professional") // 'professional' | 'conversational' | 'academic'
+  bioLength        Int?     @default(250) // Default word count
+  
+  // AI Learning data
+  categoryMappings Json?    // Learned patterns for categorization
+  rejectedPatterns Json?    // Patterns user consistently rejects
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ============================================
+// DATA SOURCES (connected accounts)
+// ============================================
+
+model DataSource {
+  id           String   @id @default(cuid())
+  userId       String
+  
+  // Source type and authentication
+  type         String   // 'google_calendar' | 'outlook_calendar' | 'apple_calendar' | 'pubmed_rss'
+  accessToken  String?  @db.Text
+  refreshToken String?  @db.Text
+  expiresAt    DateTime?
+  
+  // Source-specific config
+  config       Json?    // RSS URL, calendar ID, etc.
+  
+  // Sync status
+  lastSyncAt   DateTime?
+  syncEnabled  Boolean  @default(true)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+}

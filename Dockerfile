@@ -64,6 +64,10 @@ COPY --from=builder /app/node_modules/cookie ./node_modules/cookie
 COPY --from=builder /app/node_modules/preact ./node_modules/preact
 COPY --from=builder /app/node_modules/preact-render-to-string ./node_modules/preact-render-to-string
 COPY --from=builder /app/node_modules/@babel ./node_modules/@babel
+COPY --from=builder /app/node_modules/oidc-token-hash ./node_modules/oidc-token-hash
+COPY --from=builder /app/node_modules/object-hash ./node_modules/object-hash
+COPY --from=builder /app/node_modules/lru-cache ./node_modules/lru-cache
+COPY --from=builder /app/node_modules/yallist ./node_modules/yallist
 
 # Set permissions
 RUN chown -R nextjs:nodejs /app

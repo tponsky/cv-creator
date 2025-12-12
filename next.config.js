@@ -5,11 +5,6 @@ const nextConfig = {
         serverActions: {
             bodySizeLimit: '2mb',
         },
-        serverComponentsExternalPackages: [
-            'next-auth',
-            '@prisma/client',
-            'bcryptjs',
-        ],
     },
 };
 

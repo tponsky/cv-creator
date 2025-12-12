@@ -43,7 +43,14 @@ export default function RegisterPage() {
                 throw new Error(data.error || 'Registration failed');
             }
 
-            router.push('/login?registered=true');
+            // Store token in localStorage as backup
+            if (data.token) {
+                localStorage.setItem('auth-token', data.token);
+            }
+
+            // Auto-login - redirect to dashboard
+            router.push('/dashboard');
+            router.refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'An unexpected error occurred');
         } finally {

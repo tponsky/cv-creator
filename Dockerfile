@@ -53,21 +53,8 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 # Copy bcryptjs for password hashing
 COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 
-# Copy next-auth for authentication
-COPY --from=builder /app/node_modules/next-auth ./node_modules/next-auth
-COPY --from=builder /app/node_modules/@panva ./node_modules/@panva
-COPY --from=builder /app/node_modules/oauth ./node_modules/oauth
-COPY --from=builder /app/node_modules/openid-client ./node_modules/openid-client
+# Copy jose for JWT authentication (replaces next-auth)
 COPY --from=builder /app/node_modules/jose ./node_modules/jose
-COPY --from=builder /app/node_modules/uuid ./node_modules/uuid
-COPY --from=builder /app/node_modules/cookie ./node_modules/cookie
-COPY --from=builder /app/node_modules/preact ./node_modules/preact
-COPY --from=builder /app/node_modules/preact-render-to-string ./node_modules/preact-render-to-string
-COPY --from=builder /app/node_modules/@babel ./node_modules/@babel
-COPY --from=builder /app/node_modules/oidc-token-hash ./node_modules/oidc-token-hash
-COPY --from=builder /app/node_modules/object-hash ./node_modules/object-hash
-COPY --from=builder /app/node_modules/lru-cache ./node_modules/lru-cache
-COPY --from=builder /app/node_modules/yallist ./node_modules/yallist
 
 # Set permissions
 RUN chown -R nextjs:nodejs /app

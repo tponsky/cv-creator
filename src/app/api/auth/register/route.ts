@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hash } from 'bcryptjs';
 import prisma from '@/lib/prisma';
+import { createToken, AUTH_COOKIE_OPTIONS } from '@/lib/jwt';
 
 // Default CV categories for academic CVs
 const DEFAULT_CATEGORIES = [
@@ -82,7 +83,15 @@ export async function POST(request: NextRequest) {
             },
         });
 
-        return NextResponse.json(
+        // Create JWT token for auto-login
+        const token = await createToken({
+            id: user.id,
+            email: user.email,
+            name: user.name || undefined,
+        });
+
+        // Create response with cookie (auto-login)
+        const response = NextResponse.json(
             {
                 message: 'Account created successfully',
                 user: {
@@ -90,9 +99,15 @@ export async function POST(request: NextRequest) {
                     email: user.email,
                     name: user.name,
                 },
+                token, // Also return token for localStorage option
             },
             { status: 201 }
         );
+
+        // Set auth cookie for auto-login
+        response.cookies.set('auth-token', token, AUTH_COOKIE_OPTIONS);
+
+        return response;
     } catch (error) {
         console.error('Registration error:', error);
         return NextResponse.json(

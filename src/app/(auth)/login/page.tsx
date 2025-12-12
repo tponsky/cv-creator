@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -18,15 +17,23 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const result = await signIn('credentials', {
-                redirect: false,
-                email,
-                password,
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email, password }),
             });
 
-            if (result?.error) {
-                setError(result.error);
+            const data = await response.json();
+
+            if (!response.ok) {
+                setError(data.error || 'Login failed');
             } else {
+                // Store token in localStorage as backup
+                if (data.token) {
+                    localStorage.setItem('auth-token', data.token);
+                }
                 router.push('/dashboard');
                 router.refresh();
             }

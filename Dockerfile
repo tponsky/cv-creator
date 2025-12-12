@@ -16,6 +16,9 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
+# Ensure public folder exists
+RUN mkdir -p public
+
 # Build the application
 RUN npm run build
 

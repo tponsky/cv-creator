@@ -53,6 +53,17 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 # Copy bcryptjs for password hashing
 COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 
+# Copy next-auth for authentication
+COPY --from=builder /app/node_modules/next-auth ./node_modules/next-auth
+COPY --from=builder /app/node_modules/@panva ./node_modules/@panva
+COPY --from=builder /app/node_modules/oauth ./node_modules/oauth
+COPY --from=builder /app/node_modules/openid-client ./node_modules/openid-client
+COPY --from=builder /app/node_modules/jose ./node_modules/jose
+COPY --from=builder /app/node_modules/uuid ./node_modules/uuid
+COPY --from=builder /app/node_modules/cookie ./node_modules/cookie
+COPY --from=builder /app/node_modules/preact ./node_modules/preact
+COPY --from=builder /app/node_modules/preact-render-to-string ./node_modules/preact-render-to-string
+
 # Set permissions
 RUN chown -R nextjs:nodejs /app
 

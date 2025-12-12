@@ -57,11 +57,7 @@ export async function getCurrentUser(request: Request): Promise<JWTPayload | nul
     return verifyToken(token);
 }
 
-// Set auth cookie
-export function setAuthCookie(token: string): void {
-    // This will be called from API routes
-    // Cookie is set via response headers
-}
+
 
 // Cookie options for auth token
 export const AUTH_COOKIE_OPTIONS = {

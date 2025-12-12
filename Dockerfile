@@ -63,6 +63,7 @@ COPY --from=builder /app/node_modules/uuid ./node_modules/uuid
 COPY --from=builder /app/node_modules/cookie ./node_modules/cookie
 COPY --from=builder /app/node_modules/preact ./node_modules/preact
 COPY --from=builder /app/node_modules/preact-render-to-string ./node_modules/preact-render-to-string
+COPY --from=builder /app/node_modules/@babel ./node_modules/@babel
 
 # Set permissions
 RUN chown -R nextjs:nodejs /app

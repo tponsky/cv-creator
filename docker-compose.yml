@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - DATABASE_URL=postgresql://cvuser:cvpassword@db:5432/cv_creator
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}

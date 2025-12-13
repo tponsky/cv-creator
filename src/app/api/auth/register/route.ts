@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { hash } from 'bcryptjs';
+import { hashSync } from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { createToken, AUTH_COOKIE_OPTIONS } from '@/lib/jwt';
 
@@ -34,8 +34,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Hash password
-        const hashedPassword = await hash(password, 12);
+        // Hash password (use sync version to avoid async bundling issues)
+        const hashedPassword = hashSync(password, 12);
 
         // Create user (simplified - without nested creates)
         const user = await prisma.user.create({

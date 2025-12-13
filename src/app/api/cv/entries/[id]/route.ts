@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+
+// Get first user (demo mode - no auth)
+async function getDemoUser() {
+    return await prisma.user.findFirst();
+}
 
 // GET a single entry
 export async function GET(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     const entry = await prisma.entry.findFirst({
         where: {
             id: params.id,
             category: {
-                cv: { userId: session.user.id },
+                cv: { userId: user.id },
             },
         },
         include: {
@@ -39,9 +42,9 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     const { title, description, date, endDate, location, url, categoryId, displayOrder } = await request.json();
@@ -51,7 +54,7 @@ export async function PATCH(
         where: {
             id: params.id,
             category: {
-                cv: { userId: session.user.id },
+                cv: { userId: user.id },
             },
         },
     });
@@ -65,7 +68,7 @@ export async function PATCH(
         const newCategory = await prisma.category.findFirst({
             where: {
                 id: categoryId,
-                cv: { userId: session.user.id },
+                cv: { userId: user.id },
             },
         });
 
@@ -96,9 +99,9 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     // Verify ownership
@@ -106,7 +109,7 @@ export async function DELETE(
         where: {
             id: params.id,
             category: {
-                cv: { userId: session.user.id },
+                cv: { userId: user.id },
             },
         },
     });

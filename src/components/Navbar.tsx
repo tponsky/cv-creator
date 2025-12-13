@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { signOut } from 'next-auth/react';
 import { useState } from 'react';
 
 interface NavbarProps {
@@ -46,8 +45,8 @@ export function Navbar({ user }: NavbarProps) {
                                 key={link.href}
                                 href={link.href}
                                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive(link.href)
-                                        ? 'bg-primary-500/20 text-primary-400'
-                                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                                    ? 'bg-primary-500/20 text-primary-400'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                                     }`}
                             >
                                 {link.label}
@@ -80,29 +79,20 @@ export function Navbar({ user }: NavbarProps) {
                                             <p className="font-medium">{user.name}</p>
                                             <p className="text-sm text-muted-foreground">{user.email}</p>
                                         </div>
-                                        <div className="p-1 md:hidden">
+                                        <div className="p-1">
                                             {navLinks.map((link) => (
                                                 <Link
                                                     key={link.href}
                                                     href={link.href}
                                                     onClick={() => setMenuOpen(false)}
                                                     className={`block px-3 py-2 rounded-lg text-sm transition-colors ${isActive(link.href)
-                                                            ? 'bg-primary-500/20 text-primary-400'
-                                                            : 'text-foreground hover:bg-secondary'
+                                                        ? 'bg-primary-500/20 text-primary-400'
+                                                        : 'text-foreground hover:bg-secondary'
                                                         }`}
                                                 >
                                                     {link.label}
                                                 </Link>
                                             ))}
-                                            <hr className="my-1 border-border" />
-                                        </div>
-                                        <div className="p-1">
-                                            <button
-                                                onClick={() => signOut({ callbackUrl: '/login' })}
-                                                className="w-full text-left px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                                            >
-                                                Sign out
-                                            </button>
                                         </div>
                                     </div>
                                 </>

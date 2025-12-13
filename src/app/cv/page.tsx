@@ -1,20 +1,27 @@
-import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { CVEditor } from '@/components/CVEditor';
 
-export default async function CVPage() {
-    const session = await getServerSession(authOptions);
+// Get first user from database (demo mode - no auth)
+async function getDemoUser() {
+    const user = await prisma.user.findFirst();
+    return user;
+}
 
-    if (!session?.user) {
-        redirect('/login');
+export default async function CVPage() {
+    const user = await getDemoUser();
+
+    if (!user) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <p className="text-muted-foreground">No user found. Please visit the dashboard first to create a demo account.</p>
+            </div>
+        );
     }
 
     // Fetch user's CV with all categories and entries
     const cv = await prisma.cV.findUnique({
-        where: { userId: session.user.id },
+        where: { userId: user.id },
         include: {
             categories: {
                 orderBy: { displayOrder: 'asc' },
@@ -31,12 +38,18 @@ export default async function CVPage() {
     });
 
     if (!cv) {
-        redirect('/dashboard');
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <p className="text-muted-foreground">No CV found. Please visit the dashboard first.</p>
+            </div>
+        );
     }
+
+    const navUser = { id: user.id, name: user.name, email: user.email };
 
     return (
         <div className="min-h-screen bg-background">
-            <Navbar user={session.user} />
+            <Navbar user={navUser} />
 
             <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex items-center justify-between mb-8">

@@ -1,20 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+
+// Get first user (demo mode - no auth)
+async function getDemoUser() {
+    return await prisma.user.findFirst();
+}
 
 // GET all entries (optionally filtered by category)
 export async function GET(request: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get('categoryId');
 
     const cv = await prisma.cV.findUnique({
-        where: { userId: session.user.id },
+        where: { userId: user.id },
         include: {
             categories: {
                 where: categoryId ? { id: categoryId } : undefined,
@@ -33,9 +36,9 @@ export async function GET(request: NextRequest) {
 
 // POST create a new entry
 export async function POST(request: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     const { categoryId, title, description, date, endDate, location, url, sourceType, sourceData } = await request.json();
@@ -48,7 +51,7 @@ export async function POST(request: NextRequest) {
     const category = await prisma.category.findFirst({
         where: {
             id: categoryId,
-            cv: { userId: session.user.id },
+            cv: { userId: user.id },
         },
     });
 

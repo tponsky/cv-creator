@@ -1,6 +1,4 @@
 import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { EntryForm } from '@/components/EntryForm';
@@ -9,16 +7,21 @@ interface PageProps {
     searchParams: { category?: string };
 }
 
-export default async function AddEntryPage({ searchParams }: PageProps) {
-    const session = await getServerSession(authOptions);
+// Get first user (demo mode - no auth)
+async function getDemoUser() {
+    return await prisma.user.findFirst();
+}
 
-    if (!session?.user) {
-        redirect('/login');
+export default async function AddEntryPage({ searchParams }: PageProps) {
+    const user = await getDemoUser();
+
+    if (!user) {
+        redirect('/dashboard');
     }
 
     // Fetch user's categories
     const cv = await prisma.cV.findUnique({
-        where: { userId: session.user.id },
+        where: { userId: user.id },
         include: {
             categories: {
                 orderBy: { displayOrder: 'asc' },
@@ -30,9 +33,11 @@ export default async function AddEntryPage({ searchParams }: PageProps) {
         redirect('/dashboard');
     }
 
+    const navUser = { id: user.id, name: user.name, email: user.email };
+
     return (
         <div className="min-h-screen bg-background">
-            <Navbar user={session.user} />
+            <Navbar user={navUser} />
 
             <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="mb-8">

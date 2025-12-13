@@ -1,20 +1,11 @@
-import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import Link from 'next/link';
 import { Navbar } from '@/components/Navbar';
 
-export default async function DashboardPage() {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user) {
-        redirect('/login');
-    }
-
-    // Fetch user's CV data
-    const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
+// Default user for demo mode (no authentication)
+async function getOrCreateDemoUser() {
+    // Get first user or create one
+    let user = await prisma.user.findFirst({
         include: {
             cv: {
                 include: {
@@ -36,21 +27,77 @@ export default async function DashboardPage() {
         },
     });
 
+    if (!user) {
+        // Create a demo user if none exists
+        user = await prisma.user.create({
+            data: {
+                email: 'demo@cvbuilder.com',
+                password: 'demo-password-not-used',
+                name: 'Demo User',
+                cv: {
+                    create: {
+                        title: 'My CV',
+                        categories: {
+                            create: [
+                                { name: 'Education', displayOrder: 1 },
+                                { name: 'Experience', displayOrder: 2 },
+                                { name: 'Publications', displayOrder: 3 },
+                                { name: 'Awards', displayOrder: 4 },
+                            ],
+                        },
+                    },
+                },
+            },
+            include: {
+                cv: {
+                    include: {
+                        categories: {
+                            orderBy: { displayOrder: 'asc' },
+                            include: {
+                                entries: {
+                                    orderBy: { createdAt: 'desc' },
+                                    take: 3,
+                                },
+                            },
+                        },
+                    },
+                },
+                pendingEntries: {
+                    where: { status: 'pending' },
+                    orderBy: { createdAt: 'desc' },
+                },
+            },
+        });
+    }
+
+    return user;
+}
+
+export default async function DashboardPage() {
+    const user = await getOrCreateDemoUser();
+
     const pendingCount = user?.pendingEntries?.length || 0;
     const totalEntries = user?.cv?.categories?.reduce(
         (acc, cat) => acc + (cat.entries?.length || 0),
         0
     ) || 0;
 
+    // Create a simple user object for the Navbar
+    const navUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+    };
+
     return (
         <div className="min-h-screen bg-background">
-            <Navbar user={session.user} />
+            <Navbar user={navUser} />
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Welcome Section */}
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold mb-2">
-                        Welcome back, {session.user.name?.split(' ')[0] || 'there'}!
+                        Welcome back, {user.name?.split(' ')[0] || 'there'}!
                     </h1>
                     <p className="text-muted-foreground">
                         Manage your curriculum vitae and keep it up to date.

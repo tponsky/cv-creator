@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+
+// Get first user (demo mode - no auth)
+async function getDemoUser() {
+    return await prisma.user.findFirst();
+}
 
 // PATCH update a category
 export async function PATCH(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     const { name, displayOrder } = await request.json();
@@ -20,7 +23,7 @@ export async function PATCH(
     const category = await prisma.category.findFirst({
         where: {
             id: categoryId,
-            cv: { userId: session.user.id },
+            cv: { userId: user.id },
         },
     });
 
@@ -44,9 +47,9 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getDemoUser();
+    if (!user) {
+        return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
     const categoryId = params.id;
@@ -55,7 +58,7 @@ export async function DELETE(
     const category = await prisma.category.findFirst({
         where: {
             id: categoryId,
-            cv: { userId: session.user.id },
+            cv: { userId: user.id },
         },
     });
 

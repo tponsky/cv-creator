@@ -1,6 +1,4 @@
 import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { EntryForm } from '@/components/EntryForm';
@@ -9,11 +7,16 @@ interface PageProps {
     params: { id: string };
 }
 
-export default async function EditEntryPage({ params }: PageProps) {
-    const session = await getServerSession(authOptions);
+// Get first user (demo mode - no auth)
+async function getDemoUser() {
+    return await prisma.user.findFirst();
+}
 
-    if (!session?.user) {
-        redirect('/login');
+export default async function EditEntryPage({ params }: PageProps) {
+    const user = await getDemoUser();
+
+    if (!user) {
+        redirect('/dashboard');
     }
 
     // Fetch the entry
@@ -21,7 +24,7 @@ export default async function EditEntryPage({ params }: PageProps) {
         where: {
             id: params.id,
             category: {
-                cv: { userId: session.user.id },
+                cv: { userId: user.id },
             },
         },
     });
@@ -32,7 +35,7 @@ export default async function EditEntryPage({ params }: PageProps) {
 
     // Fetch user's categories
     const cv = await prisma.cV.findUnique({
-        where: { userId: session.user.id },
+        where: { userId: user.id },
         include: {
             categories: {
                 orderBy: { displayOrder: 'asc' },
@@ -44,6 +47,8 @@ export default async function EditEntryPage({ params }: PageProps) {
         redirect('/dashboard');
     }
 
+    const navUser = { id: user.id, name: user.name, email: user.email };
+
     // Convert dates to strings for the form
     const entryWithStringDates = {
         ...entry,
@@ -53,7 +58,7 @@ export default async function EditEntryPage({ params }: PageProps) {
 
     return (
         <div className="min-h-screen bg-background">
-            <Navbar user={session.user} />
+            <Navbar user={navUser} />
 
             <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="mb-8">

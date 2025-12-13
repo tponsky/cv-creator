@@ -116,7 +116,7 @@ export default function SettingsPage() {
                                 </button>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
-                                Use format: Last First or Last FM (e.g., "Smith John" or "Smith JD")
+                                Use format: Last First or Last FM (e.g., &quot;Smith John&quot; or &quot;Smith JD&quot;)
                             </p>
                         </div>
 

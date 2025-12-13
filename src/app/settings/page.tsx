@@ -176,7 +176,7 @@ export default function SettingsPage() {
                             Forward any email to:
                         </p>
                         <code className="block mt-2 px-3 py-2 rounded bg-secondary text-lg font-mono">
-                            add@cv.staycurrentai.com
+                            cv@mail.staycurrentapp.com
                         </code>
                         <p className="text-xs text-muted-foreground mt-3">
                             AI will extract CV-worthy content like publications, awards, and presentations.

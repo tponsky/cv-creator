@@ -168,11 +168,19 @@ export default function SettingsPage() {
                     <h2 className="text-xl font-semibold mb-4">Email Forwarding</h2>
                     <p className="text-muted-foreground mb-4">
                         Forward emails containing awards, conference invitations, or other CV-worthy content.
+                        AI will automatically extract relevant information.
                     </p>
-                    <div className="p-4 rounded-lg bg-primary-500/10 border border-primary-500/30">
-                        <p className="font-medium text-primary-400">Coming Soon</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Forward emails to <code className="px-1 py-0.5 rounded bg-secondary">add@cv.staycurrentai.com</code> and AI will extract CV entries automatically.
+                    <div className="p-4 rounded-lg bg-success/10 border border-success/30">
+                        <p className="font-medium text-success">Email forwarding is active!</p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                            Forward any email to:
+                        </p>
+                        <code className="block mt-2 px-3 py-2 rounded bg-secondary text-lg font-mono">
+                            add@cv.staycurrentai.com
+                        </code>
+                        <p className="text-xs text-muted-foreground mt-3">
+                            AI will extract CV-worthy content like publications, awards, and presentations.
+                            Check the Review Queue to approve extracted entries.
                         </p>
                     </div>
                 </div>

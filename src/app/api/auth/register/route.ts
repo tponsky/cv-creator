@@ -3,21 +3,6 @@ import { hash } from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { createToken, AUTH_COOKIE_OPTIONS } from '@/lib/jwt';
 
-// Default CV categories for academic CVs
-const DEFAULT_CATEGORIES = [
-    { name: 'Education', displayOrder: 0 },
-    { name: 'Academic Positions', displayOrder: 1 },
-    { name: 'Peer-Reviewed Publications', displayOrder: 2 },
-    { name: 'Book Chapters', displayOrder: 3 },
-    { name: 'Presentations', displayOrder: 4 },
-    { name: 'Grants & Funding', displayOrder: 5 },
-    { name: 'Awards & Honors', displayOrder: 6 },
-    { name: 'Teaching', displayOrder: 7 },
-    { name: 'Mentorship', displayOrder: 8 },
-    { name: 'Service & Leadership', displayOrder: 9 },
-    { name: 'Professional Memberships', displayOrder: 10 },
-];
-
 export async function POST(request: NextRequest) {
     try {
         const { name, email, password, institution } = await request.json();
@@ -52,34 +37,47 @@ export async function POST(request: NextRequest) {
         // Hash password
         const hashedPassword = await hash(password, 12);
 
-        // Create user with CV and default categories
+        // Create user (simplified - without nested creates)
         const user = await prisma.user.create({
             data: {
                 name,
                 email,
                 password: hashedPassword,
                 institution,
-                cv: {
-                    create: {
-                        title: 'Curriculum Vitae',
-                        categories: {
-                            create: DEFAULT_CATEGORIES,
-                        },
-                    },
-                },
-                preferences: {
-                    create: {
-                        bioStyle: 'professional',
-                        bioLength: 250,
-                    },
-                },
             },
-            include: {
-                cv: {
-                    include: {
-                        categories: true,
-                    },
-                },
+        });
+
+        // Create CV and categories in separate operations
+        const cv = await prisma.cV.create({
+            data: {
+                userId: user.id,
+                title: 'Curriculum Vitae',
+            },
+        });
+
+        // Create default categories
+        await prisma.category.createMany({
+            data: [
+                { cvId: cv.id, name: 'Education', displayOrder: 0 },
+                { cvId: cv.id, name: 'Academic Positions', displayOrder: 1 },
+                { cvId: cv.id, name: 'Peer-Reviewed Publications', displayOrder: 2 },
+                { cvId: cv.id, name: 'Book Chapters', displayOrder: 3 },
+                { cvId: cv.id, name: 'Presentations', displayOrder: 4 },
+                { cvId: cv.id, name: 'Grants & Funding', displayOrder: 5 },
+                { cvId: cv.id, name: 'Awards & Honors', displayOrder: 6 },
+                { cvId: cv.id, name: 'Teaching', displayOrder: 7 },
+                { cvId: cv.id, name: 'Mentorship', displayOrder: 8 },
+                { cvId: cv.id, name: 'Service & Leadership', displayOrder: 9 },
+                { cvId: cv.id, name: 'Professional Memberships', displayOrder: 10 },
+            ],
+        });
+
+        // Create user preferences
+        await prisma.userPreferences.create({
+            data: {
+                userId: user.id,
+                bioStyle: 'professional',
+                bioLength: 250,
             },
         });
 
@@ -99,7 +97,7 @@ export async function POST(request: NextRequest) {
                     email: user.email,
                     name: user.name,
                 },
-                token, // Also return token for localStorage option
+                token,
             },
             { status: 201 }
         );

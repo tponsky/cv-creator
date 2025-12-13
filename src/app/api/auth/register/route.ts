@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { hashSync } from 'bcryptjs';
-import { createToken, AUTH_COOKIE_OPTIONS } from '@/lib/jwt';
+import { createToken } from '@/lib/jwt';
 
 export async function GET() {
     const count = await prisma.user.count();

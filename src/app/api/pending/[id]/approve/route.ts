@@ -69,7 +69,7 @@ export async function POST(
             date: pendingEntry.date,
             url: pendingEntry.url,
             sourceType: pendingEntry.sourceType || 'import',
-            sourceData: pendingEntry.sourceData,
+            sourceData: pendingEntry.sourceData as object | undefined,
             displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
         },
     });

@@ -25,7 +25,7 @@ RUN mkdir -p public
 # Build the application
 RUN npm run build
 
-# Production stage
+# Production stage - NOT using standalone, copy full node_modules
 FROM node:20-alpine AS runner
 
 # Install OpenSSL for Prisma runtime
@@ -42,22 +42,11 @@ RUN adduser --system --uid 1001 nextjs
 
 # Copy necessary files from builder
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
-
-# Copy full Prisma client including generated client and runtime
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-
-# Copy bcryptjs for password hashing
-COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
-
-# Copy jose for JWT authentication (replaces next-auth)
-COPY --from=builder /app/node_modules/jose ./node_modules/jose
-
-# Copy cookie for cookie serialization in Pages Router
-COPY --from=builder /app/node_modules/cookie ./node_modules/cookie
+COPY --from=builder /app/next.config.js ./next.config.js
 
 # Set permissions
 RUN chown -R nextjs:nodejs /app
@@ -69,4 +58,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+# Use npm start instead of node server.js
+CMD ["npm", "start"]

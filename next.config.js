@@ -5,9 +5,9 @@ const nextConfig = {
         serverActions: {
             bodySizeLimit: '2mb',
         },
+        // Keep Prisma external (not bundled) for server components
+        serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
     },
-    // Tell Next.js to keep these packages external (not bundled) for server components
-    serverExternalPackages: ['@prisma/client', 'prisma'],
 };
 
 module.exports = nextConfig;

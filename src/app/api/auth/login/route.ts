@@ -5,7 +5,9 @@ import { createToken, AUTH_COOKIE_OPTIONS } from '@/lib/jwt';
 
 export async function POST(request: NextRequest) {
     try {
-        const { email, password } = await request.json();
+        // Alternative body parsing - read text first, then parse
+        const text = await request.text();
+        const { email, password } = JSON.parse(text);
 
         // Validation
         if (!email || !password) {

@@ -10,7 +10,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
     try {
-        const body = await request.json();
+        // Alternative body parsing - read text first, then parse
+        const text = await request.text();
+        const body = JSON.parse(text);
         const { name, email, password, institution } = body;
 
         // Validation
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Hash password (sync version avoids async bundling issues)
+        // Hash password
         const hashedPassword = hashSync(password, 10);
 
         // Create user
@@ -53,14 +55,14 @@ export async function POST(request: NextRequest) {
             },
         });
 
-        // Create JWT token for auto-login
+        // Create JWT token
         const token = await createToken({
             id: user.id,
             email: user.email,
             name: user.name || undefined,
         });
 
-        // Create response with cookie (auto-login)
+        // Create response
         const response = NextResponse.json(
             {
                 message: 'Account created successfully',
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest) {
             { status: 201 }
         );
 
-        // Set auth cookie for auto-login
+        // Set auth cookie
         response.cookies.set('auth-token', token, AUTH_COOKIE_OPTIONS);
 
         return response;

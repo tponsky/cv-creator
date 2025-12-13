@@ -56,6 +56,9 @@ COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 # Copy jose for JWT authentication (replaces next-auth)
 COPY --from=builder /app/node_modules/jose ./node_modules/jose
 
+# Copy cookie for cookie serialization in Pages Router
+COPY --from=builder /app/node_modules/cookie ./node_modules/cookie
+
 # Set permissions
 RUN chown -R nextjs:nodejs /app
 

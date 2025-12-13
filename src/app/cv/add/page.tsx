@@ -3,6 +3,9 @@ import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { EntryForm } from '@/components/EntryForm';
 
+// Force dynamic rendering - don't prerender at build time
+export const dynamic = 'force-dynamic';
+
 interface PageProps {
     searchParams: { category?: string };
 }

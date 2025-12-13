@@ -2,6 +2,9 @@ import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { CVEditor } from '@/components/CVEditor';
 
+// Force dynamic rendering - don't prerender at build time
+export const dynamic = 'force-dynamic';
+
 // Get first user from database (demo mode - no auth)
 async function getDemoUser() {
     const user = await prisma.user.findFirst();

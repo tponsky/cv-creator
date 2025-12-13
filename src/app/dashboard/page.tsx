@@ -2,6 +2,9 @@ import prisma from '@/lib/prisma';
 import Link from 'next/link';
 import { Navbar } from '@/components/Navbar';
 
+// Force dynamic rendering - don't prerender at build time
+export const dynamic = 'force-dynamic';
+
 // Default user for demo mode (no authentication)
 async function getOrCreateDemoUser() {
     // Get first user or create one

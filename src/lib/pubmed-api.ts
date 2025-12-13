@@ -93,9 +93,10 @@ function parseArticle(xml: string): PubMedArticle | null {
 
     // Extract authors
     const authors: string[] = [];
-    const authorMatches = xml.matchAll(/<Author[^>]*>[\s\S]*?<LastName>([^<]+)<\/LastName>[\s\S]*?<ForeName>([^<]*)<\/ForeName>[\s\S]*?<\/Author>/g);
-    for (const match of authorMatches) {
-        authors.push(`${match[1]} ${match[2]}`.trim());
+    const authorRegex = /<Author[^>]*>[\s\S]*?<LastName>([^<]+)<\/LastName>[\s\S]*?<ForeName>([^<]*)<\/ForeName>[\s\S]*?<\/Author>/g;
+    let authorMatch;
+    while ((authorMatch = authorRegex.exec(xml)) !== null) {
+        authors.push(`${authorMatch[1]} ${authorMatch[2]}`.trim());
     }
 
     // Extract journal

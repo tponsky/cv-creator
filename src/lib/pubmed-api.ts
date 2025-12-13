@@ -1,0 +1,189 @@
+/**
+ * PubMed API Integration
+ * Uses NCBI E-utilities to search and fetch publication data
+ * https://www.ncbi.nlm.nih.gov/books/NBK25500/
+ */
+
+const PUBMED_BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
+
+export interface PubMedArticle {
+    pmid: string;
+    title: string;
+    authors: string[];
+    journal: string;
+    pubDate: string;
+    doi: string | null;
+    abstract: string | null;
+}
+
+export interface PubMedSearchResult {
+    count: number;
+    articles: PubMedArticle[];
+}
+
+/**
+ * Search PubMed for articles by author name
+ */
+export async function searchPubMed(
+    authorName: string,
+    maxResults: number = 100
+): Promise<string[]> {
+    // Format author name for PubMed search (Last FM format)
+    const formattedAuthor = authorName.trim();
+
+    const searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(formattedAuthor)}[Author]&retmax=${maxResults}&retmode=json`;
+
+    const response = await fetch(searchUrl);
+    if (!response.ok) {
+        throw new Error(`PubMed search failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.esearchresult?.idlist || [];
+}
+
+/**
+ * Fetch article details by PMIDs
+ */
+export async function fetchArticleDetails(pmids: string[]): Promise<PubMedArticle[]> {
+    if (pmids.length === 0) return [];
+
+    const fetchUrl = `${PUBMED_BASE_URL}/efetch.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=xml`;
+
+    const response = await fetch(fetchUrl);
+    if (!response.ok) {
+        throw new Error(`PubMed fetch failed: ${response.statusText}`);
+    }
+
+    const xmlText = await response.text();
+    return parseArticlesFromXml(xmlText);
+}
+
+/**
+ * Parse PubMed XML response into article objects
+ */
+function parseArticlesFromXml(xml: string): PubMedArticle[] {
+    const articles: PubMedArticle[] = [];
+
+    // Extract each PubmedArticle block
+    const articleMatches = xml.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g) || [];
+
+    for (const articleXml of articleMatches) {
+        try {
+            const article = parseArticle(articleXml);
+            if (article) {
+                articles.push(article);
+            }
+        } catch (e) {
+            console.error('Failed to parse article:', e);
+        }
+    }
+
+    return articles;
+}
+
+function parseArticle(xml: string): PubMedArticle | null {
+    // Extract PMID
+    const pmidMatch = xml.match(/<PMID[^>]*>(\d+)<\/PMID>/);
+    if (!pmidMatch) return null;
+
+    // Extract title
+    const titleMatch = xml.match(/<ArticleTitle>([^<]+)<\/ArticleTitle>/);
+    const title = titleMatch ? decodeXmlEntities(titleMatch[1]) : 'Unknown Title';
+
+    // Extract authors
+    const authors: string[] = [];
+    const authorMatches = xml.matchAll(/<Author[^>]*>[\s\S]*?<LastName>([^<]+)<\/LastName>[\s\S]*?<ForeName>([^<]*)<\/ForeName>[\s\S]*?<\/Author>/g);
+    for (const match of authorMatches) {
+        authors.push(`${match[1]} ${match[2]}`.trim());
+    }
+
+    // Extract journal
+    const journalMatch = xml.match(/<Title>([^<]+)<\/Title>/);
+    const journal = journalMatch ? decodeXmlEntities(journalMatch[1]) : 'Unknown Journal';
+
+    // Extract publication date
+    const yearMatch = xml.match(/<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
+    const monthMatch = xml.match(/<PubDate>[\s\S]*?<Month>([^<]+)<\/Month>/);
+    const pubDate = yearMatch
+        ? `${yearMatch[1]}${monthMatch ? `-${monthMatch[1]}` : ''}`
+        : 'Unknown';
+
+    // Extract DOI
+    const doiMatch = xml.match(/<ArticleId IdType="doi">([^<]+)<\/ArticleId>/);
+    const doi = doiMatch ? doiMatch[1] : null;
+
+    // Extract abstract
+    const abstractMatch = xml.match(/<AbstractText[^>]*>([^<]+)<\/AbstractText>/);
+    const abstract = abstractMatch ? decodeXmlEntities(abstractMatch[1]) : null;
+
+    return {
+        pmid: pmidMatch[1],
+        title,
+        authors,
+        journal,
+        pubDate,
+        doi,
+        abstract,
+    };
+}
+
+function decodeXmlEntities(text: string): string {
+    return text
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'");
+}
+
+/**
+ * Full search and fetch - returns complete article data
+ */
+export async function searchAndFetchArticles(
+    authorName: string,
+    maxResults: number = 100
+): Promise<PubMedSearchResult> {
+    const pmids = await searchPubMed(authorName, maxResults);
+    const articles = await fetchArticleDetails(pmids);
+
+    return {
+        count: articles.length,
+        articles,
+    };
+}
+
+/**
+ * Convert PubMed article to CV entry format
+ */
+export function articleToCVEntry(article: PubMedArticle) {
+    const authorList = article.authors.length > 3
+        ? `${article.authors.slice(0, 3).join(', ')}, et al.`
+        : article.authors.join(', ');
+
+    return {
+        title: article.title,
+        description: `${authorList}. ${article.journal}. ${article.pubDate}.${article.doi ? ` DOI: ${article.doi}` : ''}`,
+        date: parsePublicationDate(article.pubDate),
+        url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+        sourceType: 'pubmed',
+        sourceData: JSON.stringify({ pmid: article.pmid, doi: article.doi }),
+    };
+}
+
+function parsePublicationDate(pubDate: string): Date | null {
+    if (!pubDate || pubDate === 'Unknown') return null;
+
+    // Handle "2024" or "2024-Jan" formats
+    const parts = pubDate.split('-');
+    const year = parseInt(parts[0]);
+    if (isNaN(year)) return null;
+
+    const monthMap: Record<string, number> = {
+        'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+        'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11,
+    };
+
+    const month = parts[1] ? (monthMap[parts[1]] ?? 0) : 0;
+    return new Date(year, month, 1);
+}

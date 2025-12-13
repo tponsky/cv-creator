@@ -1,5 +1,4 @@
 import { SignJWT, jwtVerify } from 'jose';
-import { cookies } from 'next/headers';
 
 const JWT_SECRET = new TextEncoder().encode(
     process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'fallback-secret-change-in-production'
@@ -36,28 +35,32 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
     }
 }
 
-// Get token from cookies or Authorization header
-export async function getTokenFromRequest(request: Request): Promise<string | null> {
-    // Check Authorization header first
+// Get token from Authorization header or cookies
+export function getTokenFromRequest(request: Request): string | null {
+    // Check Authorization header
     const authHeader = request.headers.get('Authorization');
     if (authHeader?.startsWith('Bearer ')) {
         return authHeader.substring(7);
     }
 
-    // Check cookies
-    const cookieStore = await cookies();
-    const tokenCookie = cookieStore.get('auth-token');
-    return tokenCookie?.value || null;
+    // Check cookie header manually (avoid next/headers import)
+    const cookieHeader = request.headers.get('Cookie');
+    if (cookieHeader) {
+        const match = cookieHeader.match(/auth-token=([^;]+)/);
+        if (match) {
+            return match[1];
+        }
+    }
+
+    return null;
 }
 
 // Get current user from request
 export async function getCurrentUser(request: Request): Promise<JWTPayload | null> {
-    const token = await getTokenFromRequest(request);
+    const token = getTokenFromRequest(request);
     if (!token) return null;
     return verifyToken(token);
 }
-
-
 
 // Cookie options for auth token
 export const AUTH_COOKIE_OPTIONS = {

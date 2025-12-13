@@ -73,16 +73,19 @@ export async function POST(request: NextRequest) {
         const existingPmids = await prisma.pendingEntry.findMany({
             where: {
                 userId: user.id,
-                sourceData: { not: null },
+                sourceType: 'pubmed',
             },
             select: { sourceData: true },
         });
 
         const existingPmidSet = new Set(
             existingPmids
-                .map(e => {
+                .map((e: { sourceData: unknown }) => {
                     try {
-                        const data = JSON.parse(e.sourceData || '{}');
+                        const sourceDataStr = typeof e.sourceData === 'string'
+                            ? e.sourceData
+                            : JSON.stringify(e.sourceData);
+                        const data = JSON.parse(sourceDataStr || '{}');
                         return data.pmid;
                     } catch {
                         return null;

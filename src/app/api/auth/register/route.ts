@@ -34,50 +34,16 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Hash password (use sync version to avoid async bundling issues)
-        const hashedPassword = hashSync(password, 12);
+        // Hash password (use sync version)
+        const hashedPassword = hashSync(password, 10);
 
-        // Create user (simplified - without nested creates)
+        // Create user only - skip CV and preferences for now
         const user = await prisma.user.create({
             data: {
-                name,
+                name: name || null,
                 email,
                 password: hashedPassword,
-                institution,
-            },
-        });
-
-        // Create CV and categories in separate operations
-        const cv = await prisma.cV.create({
-            data: {
-                userId: user.id,
-                title: 'Curriculum Vitae',
-            },
-        });
-
-        // Create default categories
-        await prisma.category.createMany({
-            data: [
-                { cvId: cv.id, name: 'Education', displayOrder: 0 },
-                { cvId: cv.id, name: 'Academic Positions', displayOrder: 1 },
-                { cvId: cv.id, name: 'Peer-Reviewed Publications', displayOrder: 2 },
-                { cvId: cv.id, name: 'Book Chapters', displayOrder: 3 },
-                { cvId: cv.id, name: 'Presentations', displayOrder: 4 },
-                { cvId: cv.id, name: 'Grants & Funding', displayOrder: 5 },
-                { cvId: cv.id, name: 'Awards & Honors', displayOrder: 6 },
-                { cvId: cv.id, name: 'Teaching', displayOrder: 7 },
-                { cvId: cv.id, name: 'Mentorship', displayOrder: 8 },
-                { cvId: cv.id, name: 'Service & Leadership', displayOrder: 9 },
-                { cvId: cv.id, name: 'Professional Memberships', displayOrder: 10 },
-            ],
-        });
-
-        // Create user preferences
-        await prisma.userPreferences.create({
-            data: {
-                userId: user.id,
-                bioStyle: 'professional',
-                bioLength: 250,
+                institution: institution || null,
             },
         });
 

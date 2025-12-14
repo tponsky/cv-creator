@@ -61,7 +61,7 @@ export function ReviewQueue({ entries, categories, onRefresh }: ReviewQueueProps
                 throw new Error('Failed to approve entry');
             }
 
-            onRefresh ? onRefresh() : router.refresh();
+            if (onRefresh) { onRefresh(); } else { router.refresh(); }
         } catch (error) {
             console.error('Approve error:', error);
             alert('Failed to approve entry');
@@ -86,7 +86,7 @@ export function ReviewQueue({ entries, categories, onRefresh }: ReviewQueueProps
                 throw new Error('Failed to reject entry');
             }
 
-            onRefresh ? onRefresh() : router.refresh();
+            if (onRefresh) { onRefresh(); } else { router.refresh(); }
         } catch (error) {
             console.error('Reject error:', error);
             alert('Failed to reject entry');

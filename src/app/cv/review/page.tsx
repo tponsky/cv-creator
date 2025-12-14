@@ -75,7 +75,10 @@ export default async function ReviewPage() {
                     </div>
                 ) : (
                     <ReviewQueue
-                        entries={pendingEntries}
+                        entries={pendingEntries.map(e => ({
+                            ...e,
+                            date: e.date ? e.date.toISOString() : null,
+                        }))}
                         categories={cv?.categories || []}
                     />
                 )}

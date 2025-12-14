@@ -7,7 +7,7 @@ interface PendingEntry {
     id: string;
     title: string;
     description: string | null;
-    date: Date | null;
+    date: string | null;
     url: string | null;
     sourceType: string;
     suggestedCategory: string | null;
@@ -104,7 +104,7 @@ export function ReviewQueue({ entries, categories }: ReviewQueueProps) {
         }
     };
 
-    const formatDate = (date: Date | null) => {
+    const formatDate = (date: string | null) => {
         if (!date) return '';
         return new Date(date).toLocaleDateString('en-US', {
             year: 'numeric',

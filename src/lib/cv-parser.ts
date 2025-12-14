@@ -125,29 +125,17 @@ ${truncatedText}`;
 
 /**
  * Extract text from PDF buffer
- * Using a workaround for pdf-parse import issues in Next.js
+ * pdf-parse has known issues with Next.js bundling
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
-    // pdf-parse has issues with Next.js bundling
-    // Try multiple import methods
     try {
-        // Method 1: Dynamic import
-        const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js');
-        const pdfParse = pdfParseModule.default || pdfParseModule;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+        const pdfParse = require('pdf-parse');
         const data = await pdfParse(buffer);
         return data.text;
-    } catch (e1) {
-        console.error('PDF parse method 1 failed:', e1);
-        try {
-            // Method 2: Direct require with full path
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const pdfParse = require('pdf-parse/lib/pdf-parse.js');
-            const data = await pdfParse(buffer);
-            return data.text;
-        } catch (e2) {
-            console.error('PDF parse method 2 failed:', e2);
-            throw new Error('Failed to parse PDF. Please try uploading a Word document instead.');
-        }
+    } catch (error) {
+        console.error('PDF parsing failed:', error);
+        throw new Error('Failed to parse PDF. Please try uploading a Word (.docx) document instead.');
     }
 }
 

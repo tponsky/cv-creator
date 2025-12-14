@@ -21,9 +21,10 @@ interface Category {
 interface ReviewQueueProps {
     entries: PendingEntry[];
     categories: Category[];
+    onRefresh?: () => void;
 }
 
-export function ReviewQueue({ entries, categories }: ReviewQueueProps) {
+export function ReviewQueue({ entries, categories, onRefresh }: ReviewQueueProps) {
     const router = useRouter();
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
     const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>(() => {
@@ -60,7 +61,7 @@ export function ReviewQueue({ entries, categories }: ReviewQueueProps) {
                 throw new Error('Failed to approve entry');
             }
 
-            router.refresh();
+            onRefresh ? onRefresh() : router.refresh();
         } catch (error) {
             console.error('Approve error:', error);
             alert('Failed to approve entry');
@@ -85,7 +86,7 @@ export function ReviewQueue({ entries, categories }: ReviewQueueProps) {
                 throw new Error('Failed to reject entry');
             }
 
-            router.refresh();
+            onRefresh ? onRefresh() : router.refresh();
         } catch (error) {
             console.error('Reject error:', error);
             alert('Failed to reject entry');

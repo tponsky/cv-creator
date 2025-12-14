@@ -1,46 +1,90 @@
-import prisma from '@/lib/prisma';
+'use client';
+
+import { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { ReviewQueue } from '@/components/ReviewQueue';
 
-// Force dynamic rendering - don't prerender at build time
-export const dynamic = 'force-dynamic';
-
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
+interface PendingEntry {
+    id: string;
+    title: string;
+    description: string | null;
+    date: string | null;
+    url: string | null;
+    sourceType: string;
+    suggestedCategory: string | null;
 }
 
-export default async function ReviewPage() {
-    const user = await getDemoUser();
+interface Category {
+    id: string;
+    name: string;
+}
 
-    if (!user) {
+export default function ReviewPage() {
+    const [entries, setEntries] = useState<PendingEntry[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const navUser = { name: 'Demo User', email: 'demo@cvbuilder.com' };
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        try {
+            // Fetch pending entries
+            const entriesRes = await fetch('/api/pending');
+            if (!entriesRes.ok) throw new Error('Failed to fetch entries');
+            const entriesData = await entriesRes.json();
+            setEntries(entriesData.entries || []);
+
+            // Fetch categories
+            const categoriesRes = await fetch('/api/cv/categories');
+            if (!categoriesRes.ok) throw new Error('Failed to fetch categories');
+            const categoriesData = await categoriesRes.json();
+            setCategories(categoriesData.categories || []);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load data');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRefresh = () => {
+        setLoading(true);
+        fetchData();
+    };
+
+    if (loading) {
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
-                <p className="text-muted-foreground">No user found. Please visit the dashboard first.</p>
+            <div className="min-h-screen bg-background">
+                <Navbar user={navUser} />
+                <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    <div className="flex items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+                        <span className="ml-3 text-muted-foreground">Loading...</span>
+                    </div>
+                </main>
             </div>
         );
     }
 
-    // Fetch pending entries
-    const pendingEntries = await prisma.pendingEntry.findMany({
-        where: {
-            userId: user.id,
-            status: 'pending',
-        },
-        orderBy: { createdAt: 'desc' },
-    });
-
-    // Fetch categories for assignment
-    const cv = await prisma.cV.findUnique({
-        where: { userId: user.id },
-        include: {
-            categories: {
-                orderBy: { displayOrder: 'asc' },
-            },
-        },
-    });
-
-    const navUser = { id: user.id, name: user.name, email: user.email };
+    if (error) {
+        return (
+            <div className="min-h-screen bg-background">
+                <Navbar user={navUser} />
+                <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    <div className="card text-center py-12">
+                        <p className="text-destructive mb-4">{error}</p>
+                        <button onClick={handleRefresh} className="btn-secondary">
+                            Try Again
+                        </button>
+                    </div>
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background">
@@ -60,7 +104,7 @@ export default async function ReviewPage() {
                     </p>
                 </div>
 
-                {pendingEntries.length === 0 ? (
+                {entries.length === 0 ? (
                     <div className="card text-center py-12">
                         <svg className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -75,16 +119,9 @@ export default async function ReviewPage() {
                     </div>
                 ) : (
                     <ReviewQueue
-                        entries={pendingEntries.map(e => ({
-                            id: e.id,
-                            title: e.title,
-                            description: e.description,
-                            date: e.date ? e.date.toISOString() : null,
-                            url: e.url,
-                            sourceType: e.sourceType,
-                            suggestedCategory: e.suggestedCategory,
-                        }))}
-                        categories={cv?.categories || []}
+                        entries={entries}
+                        categories={categories}
+                        onRefresh={handleRefresh}
                     />
                 )}
             </main>

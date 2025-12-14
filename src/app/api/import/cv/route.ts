@@ -5,6 +5,29 @@ import { parseCV, extractTextFromFile } from '@/lib/cv-parser';
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
+// Helper to safely parse dates from AI responses
+function parseDate(dateStr: string | null | undefined): Date | null {
+    if (!dateStr) return null;
+
+    // Try to parse the date
+    const date = new Date(dateStr);
+
+    // Check if it's a valid date
+    if (isNaN(date.getTime())) {
+        console.warn(`Invalid date skipped: ${dateStr}`);
+        return null;
+    }
+
+    // Reject dates that are too far in past or future
+    const year = date.getFullYear();
+    if (year < 1900 || year > 2100) {
+        console.warn(`Date out of range skipped: ${dateStr}`);
+        return null;
+    }
+
+    return date;
+}
+
 // Get first user (demo mode - no auth)
 async function getDemoUser() {
     return await prisma.user.findFirst();
@@ -111,7 +134,7 @@ export async function POST(request: NextRequest) {
                         userId: user.id,
                         title: entry.title,
                         description: entry.description,
-                        date: entry.date ? new Date(entry.date) : null,
+                        date: parseDate(entry.date),
                         location: entry.location,
                         url: entry.url,
                         sourceType: 'cv-import',

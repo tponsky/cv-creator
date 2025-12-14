@@ -132,8 +132,9 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
         // unpdf is a serverless-friendly PDF library
         const { extractText } = await import('unpdf');
 
-        // Extract text from the PDF
-        const result = await extractText(buffer);
+        // Extract text from the PDF (unpdf requires Uint8Array)
+        const uint8Array = new Uint8Array(buffer);
+        const result = await extractText(uint8Array);
 
         // Join all text content (result.text is string[])
         const text = result.text;

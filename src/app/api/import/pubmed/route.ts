@@ -85,9 +85,6 @@ export async function POST(request: NextRequest) {
                 categories: {
                     include: {
                         entries: {
-                            where: {
-                                sourceData: { not: null }
-                            },
                             select: { sourceData: true }
                         }
                     }

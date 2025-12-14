@@ -24,7 +24,6 @@ export default function ReviewPage() {
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [approving, setApproving] = useState(false);
 
     const navUser = { name: 'Demo User', email: 'demo@cvbuilder.com' };
 
@@ -55,25 +54,6 @@ export default function ReviewPage() {
     const handleRefresh = () => {
         setLoading(true);
         fetchData();
-    };
-
-    const handleApproveAll = async () => {
-        if (!confirm(`Are you sure you want to approve all ${entries.length} entries? This will add them to your CV.`)) {
-            return;
-        }
-
-        setApproving(true);
-        try {
-            const res = await fetch('/api/pending/approve-all', { method: 'POST' });
-            if (!res.ok) throw new Error('Failed to approve entries');
-            const data = await res.json();
-            alert(`Successfully approved ${data.approved} entries!`);
-            handleRefresh();
-        } catch (err) {
-            alert(err instanceof Error ? err.message : 'Failed to approve entries');
-        } finally {
-            setApproving(false);
-        }
     };
 
     if (loading) {
@@ -118,23 +98,10 @@ export default function ReviewPage() {
                         </svg>
                         Back to Dashboard
                     </a>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h1 className="text-3xl font-bold">Review Queue</h1>
-                            <p className="text-muted-foreground">
-                                {entries.length} entries waiting for review
-                            </p>
-                        </div>
-                        {entries.length > 0 && (
-                            <button
-                                onClick={handleApproveAll}
-                                disabled={approving}
-                                className="btn-primary"
-                            >
-                                {approving ? 'Approving...' : `Approve All (${entries.length})`}
-                            </button>
-                        )}
-                    </div>
+                    <h1 className="text-3xl font-bold">Review Queue</h1>
+                    <p className="text-muted-foreground">
+                        Review and approve entries imported from PubMed or forwarded emails.
+                    </p>
                 </div>
 
                 {entries.length === 0 ? (

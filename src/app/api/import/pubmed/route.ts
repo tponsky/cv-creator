@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
             : result.articles;
 
         // Check for existing pending entries to avoid duplicates
-        const existingPmids = await prisma.pendingEntry.findMany({
+        const existingPendingPmids = await prisma.pendingEntry.findMany({
             where: {
                 userId: user.id,
                 sourceType: 'pubmed',
@@ -78,21 +78,54 @@ export async function POST(request: NextRequest) {
             select: { sourceData: true },
         });
 
-        const existingPmidSet = new Set(
-            existingPmids
-                .map((e: { sourceData: unknown }) => {
-                    try {
-                        const sourceDataStr = typeof e.sourceData === 'string'
-                            ? e.sourceData
-                            : JSON.stringify(e.sourceData);
-                        const data = JSON.parse(sourceDataStr || '{}');
-                        return data.pmid;
-                    } catch {
-                        return null;
+        // Also check for already-approved CV entries
+        const cv = await prisma.cV.findUnique({
+            where: { userId: user.id },
+            include: {
+                categories: {
+                    include: {
+                        entries: {
+                            where: {
+                                sourceData: { not: null }
+                            },
+                            select: { sourceData: true }
+                        }
                     }
-                })
-                .filter(Boolean)
-        );
+                }
+            }
+        });
+
+        // Collect PMIDs from pending entries
+        const pendingPmids = existingPendingPmids
+            .map((e: { sourceData: unknown }) => {
+                try {
+                    const data = typeof e.sourceData === 'object' ? e.sourceData : JSON.parse(String(e.sourceData) || '{}');
+                    return (data as Record<string, unknown>)?.pmid;
+                } catch {
+                    return null;
+                }
+            })
+            .filter(Boolean);
+
+        // Collect PMIDs from approved entries
+        const approvedPmids: string[] = [];
+        if (cv?.categories) {
+            for (const cat of cv.categories) {
+                for (const entry of cat.entries) {
+                    try {
+                        const data = typeof entry.sourceData === 'object' ? entry.sourceData : JSON.parse(String(entry.sourceData) || '{}');
+                        const pmid = (data as Record<string, unknown>)?.pmid;
+                        if (pmid) approvedPmids.push(String(pmid));
+                    } catch {
+                        // Skip entries without valid sourceData
+                    }
+                }
+            }
+        }
+
+        // Combine all existing PMIDs
+        const existingPmidSet = new Set([...pendingPmids, ...approvedPmids]);
+        console.log(`Found ${pendingPmids.length} pending and ${approvedPmids.length} approved PMIDs to skip`);
 
         // Create pending entries for new articles
         const newArticles = articlesToImport.filter(

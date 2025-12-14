@@ -125,29 +125,34 @@ export async function parseCV(text: string): Promise<ParsedCV> {
 
     console.log(`Split CV into ${chunks.length} chunks`);
 
-    // Process each chunk and merge results
-    const allCategories: ParsedCategory[] = [];
+    // Process all chunks in PARALLEL for speed (avoid timeout)
+    console.log(`Processing ${chunks.length} chunks in parallel...`);
 
-    for (let i = 0; i < chunks.length; i++) {
-        console.log(`Processing chunk ${i + 1}/${chunks.length}...`);
-        try {
-            const result = await parseCVChunk(chunks[i]);
-            // Merge categories
-            for (const cat of result.categories) {
-                const existing = allCategories.find(c =>
-                    c.name.toLowerCase() === cat.name.toLowerCase()
-                );
-                if (existing) {
-                    existing.entries.push(...cat.entries);
-                } else {
-                    allCategories.push(cat);
-                }
-            }
-        } catch (error) {
+    const chunkPromises = chunks.map((chunk, i) =>
+        parseCVChunk(chunk).catch(error => {
             console.error(`Error processing chunk ${i + 1}:`, error);
-            // Continue with other chunks
+            return { categories: [], rawText: chunk };
+        })
+    );
+
+    const results = await Promise.all(chunkPromises);
+
+    // Merge all results
+    const allCategories: ParsedCategory[] = [];
+    for (const result of results) {
+        for (const cat of result.categories) {
+            const existing = allCategories.find(c =>
+                c.name.toLowerCase() === cat.name.toLowerCase()
+            );
+            if (existing) {
+                existing.entries.push(...cat.entries);
+            } else {
+                allCategories.push(cat);
+            }
         }
     }
+
+    console.log(`Merged ${allCategories.length} categories from ${chunks.length} chunks`);
 
     return {
         categories: allCategories,

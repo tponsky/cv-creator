@@ -74,13 +74,109 @@ export async function parseCV(text: string): Promise<ParsedCV> {
         throw new Error('OPENAI_API_KEY is not configured');
     }
 
-    // Truncate text if too long (GPT-4 context limit)
-    const maxChars = 100000;
-    const truncatedText = text.length > maxChars ? text.slice(0, maxChars) : text;
+    // For very long CVs, process in chunks to avoid response truncation
+    const CHUNK_SIZE = 15000; // Characters per chunk (conservative for token limits)
 
-    const userPrompt = `Parse the following CV and extract all sections and entries:
+    if (text.length <= CHUNK_SIZE) {
+        // Short CV - process in one go
+        return parseCVChunk(text);
+    }
 
-${truncatedText}`;
+    // Long CV - split by section headers and process in chunks
+    console.log(`Long CV detected (${text.length} chars), processing in chunks...`);
+
+    // Try to split by common section headers
+    const sectionPatterns = [
+        /\n(?=(?:PUBLICATIONS?|PEER[- ]?REVIEWED|PRESENTATIONS?|GRANTS?|AWARDS?|EDUCATION|EXPERIENCE|TEACHING|MENTORING|SERVICE|LEADERSHIP|PROFESSIONAL|EDITORIAL|COMMITTEE|TRAINING|RESEARCH|CLINICAL|ACADEMIC|HONORS?|PATENTS?|BOOKS?|CHAPTERS?|INVITED|CONFERENCES?|APPOINTMENTS?)\s*[:\n])/gi
+    ];
+
+    let sections: string[] = [text];
+    for (const pattern of sectionPatterns) {
+        const newSections: string[] = [];
+        for (const section of sections) {
+            const parts = section.split(pattern);
+            newSections.push(...parts);
+        }
+        if (newSections.length > 1) {
+            sections = newSections;
+            break;
+        }
+    }
+
+    // Combine small sections, split large ones
+    const chunks: string[] = [];
+    let currentChunk = '';
+
+    for (const section of sections) {
+        if (currentChunk.length + section.length < CHUNK_SIZE) {
+            currentChunk += section;
+        } else {
+            if (currentChunk) chunks.push(currentChunk);
+            // If single section is too large, split it
+            if (section.length > CHUNK_SIZE) {
+                const subChunks = splitLargeText(section, CHUNK_SIZE);
+                chunks.push(...subChunks);
+            } else {
+                currentChunk = section;
+            }
+        }
+    }
+    if (currentChunk) chunks.push(currentChunk);
+
+    console.log(`Split CV into ${chunks.length} chunks`);
+
+    // Process each chunk and merge results
+    const allCategories: ParsedCategory[] = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+        console.log(`Processing chunk ${i + 1}/${chunks.length}...`);
+        try {
+            const result = await parseCVChunk(chunks[i]);
+            // Merge categories
+            for (const cat of result.categories) {
+                const existing = allCategories.find(c =>
+                    c.name.toLowerCase() === cat.name.toLowerCase()
+                );
+                if (existing) {
+                    existing.entries.push(...cat.entries);
+                } else {
+                    allCategories.push(cat);
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing chunk ${i + 1}:`, error);
+            // Continue with other chunks
+        }
+    }
+
+    return {
+        categories: allCategories,
+        rawText: text,
+    };
+}
+
+// Helper function to split large text
+function splitLargeText(text: string, maxSize: number): string[] {
+    const chunks: string[] = [];
+    let start = 0;
+    while (start < text.length) {
+        // Try to split at a line break
+        let end = start + maxSize;
+        if (end < text.length) {
+            const lastNewline = text.lastIndexOf('\n', end);
+            if (lastNewline > start) end = lastNewline;
+        }
+        chunks.push(text.slice(start, end));
+        start = end;
+    }
+    return chunks;
+}
+
+// Parse a single chunk of CV text
+async function parseCVChunk(text: string): Promise<ParsedCV> {
+    const userPrompt = `Parse the following CV section and extract all entries. Return ONLY the sections that are present in this text:
+
+${text}`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -89,13 +185,13 @@ ${truncatedText}`;
             'Authorization': `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-            model: 'gpt-4o',
+            model: 'gpt-4o-mini', // Use mini for faster responses on chunks
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
                 { role: 'user', content: userPrompt },
             ],
             temperature: 0.2,
-            max_tokens: 16000,
+            max_tokens: 8000, // Smaller response per chunk
             response_format: { type: 'json_object' },
         }),
     });
@@ -112,13 +208,13 @@ ${truncatedText}`;
         const parsed = JSON.parse(content);
         return {
             categories: parsed.categories || [],
-            rawText: truncatedText,
+            rawText: text,
         };
     } catch (e) {
-        console.error('Failed to parse CV response:', content, e);
+        console.error('Failed to parse CV chunk response:', content.slice(0, 500), e);
         return {
             categories: [],
-            rawText: truncatedText,
+            rawText: text,
         };
     }
 }

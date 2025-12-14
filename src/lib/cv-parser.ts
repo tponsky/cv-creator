@@ -141,11 +141,12 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
         for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            /* eslint-disable @typescript-eslint/no-explicit-any */
             const pageText = content.items
                 .filter((item: any) => 'str' in item)
                 .map((item: any) => item.str as string)
                 .join(' ');
+            /* eslint-enable @typescript-eslint/no-explicit-any */
             textContent.push(pageText);
         }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Navbar } from '@/components/Navbar';
 
 interface Publication {
@@ -11,6 +11,14 @@ interface Publication {
     sourceType: string;
 }
 
+interface CVImportResult {
+    success: boolean;
+    message: string;
+    categoriesFound?: number;
+    entriesCreated?: number;
+    categories?: { name: string; entryCount: number }[];
+}
+
 export default function SettingsPage() {
     const [authorName, setAuthorName] = useState('');
     const [publications, setPublications] = useState<Publication[]>([]);
@@ -19,7 +27,71 @@ export default function SettingsPage() {
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
 
+    // CV Upload state
+    const [cvUploading, setCvUploading] = useState(false);
+    const [cvMessage, setCvMessage] = useState('');
+    const [cvError, setCvError] = useState('');
+    const [cvResult, setCvResult] = useState<CVImportResult | null>(null);
+    const [dragActive, setDragActive] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     const navUser = { name: 'Demo User', email: 'demo@cvbuilder.com' };
+
+    // CV Upload handlers
+    const handleDrag = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type === 'dragenter' || e.type === 'dragover') {
+            setDragActive(true);
+        } else if (e.type === 'dragleave') {
+            setDragActive(false);
+        }
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            uploadCV(e.dataTransfer.files[0]);
+        }
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            uploadCV(e.target.files[0]);
+        }
+    };
+
+    const uploadCV = async (file: File) => {
+        setCvUploading(true);
+        setCvError('');
+        setCvMessage('');
+        setCvResult(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/import/cv', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Upload failed');
+            }
+
+            setCvMessage(data.message);
+            setCvResult(data);
+        } catch (err) {
+            setCvError(err instanceof Error ? err.message : 'Upload failed');
+        } finally {
+            setCvUploading(false);
+        }
+    };
 
     const searchPubMed = async () => {
         if (!authorName.trim()) {
@@ -86,6 +158,86 @@ export default function SettingsPage() {
 
             <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <h1 className="text-3xl font-bold mb-8">Settings</h1>
+
+                {/* CV Upload Section */}
+                <div className="card mb-8">
+                    <h2 className="text-xl font-semibold mb-4">Import Existing CV</h2>
+                    <p className="text-muted-foreground mb-4">
+                        Upload your existing CV (PDF or Word) and AI will automatically extract sections and entries.
+                    </p>
+
+                    <div
+                        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+                                ? 'border-primary-500 bg-primary-500/10'
+                                : 'border-border hover:border-primary-500/50'
+                            }`}
+                        onDragEnter={handleDrag}
+                        onDragLeave={handleDrag}
+                        onDragOver={handleDrag}
+                        onDrop={handleDrop}
+                    >
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            onChange={handleFileSelect}
+                            className="hidden"
+                        />
+
+                        {cvUploading ? (
+                            <div className="flex flex-col items-center">
+                                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500 mb-4"></div>
+                                <p className="text-muted-foreground">Parsing CV with AI... This may take a moment.</p>
+                            </div>
+                        ) : (
+                            <>
+                                <svg className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                                <p className="text-lg font-medium mb-1">Drop your CV here</p>
+                                <p className="text-muted-foreground text-sm mb-4">or click to browse</p>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="btn-secondary"
+                                >
+                                    Select File
+                                </button>
+                                <p className="text-xs text-muted-foreground mt-3">
+                                    Supports PDF and Word (.doc, .docx)
+                                </p>
+                            </>
+                        )}
+                    </div>
+
+                    {cvError && (
+                        <div className="mt-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                            {cvError}
+                        </div>
+                    )}
+
+                    {cvMessage && (
+                        <div className="mt-4 p-3 rounded-lg bg-success/10 text-success text-sm">
+                            {cvMessage}
+                        </div>
+                    )}
+
+                    {cvResult && cvResult.categories && cvResult.categories.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                            <p className="text-sm font-medium">Imported Categories:</p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {cvResult.categories.map((cat, index) => (
+                                    <div key={index} className="p-2 rounded bg-secondary/50 text-sm">
+                                        <span className="font-medium">{cat.name}</span>
+                                        <span className="text-muted-foreground ml-2">({cat.entryCount} entries)</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <a href="/cv/review" className="btn-primary inline-flex mt-4">
+                                Review Imported Entries →
+                            </a>
+                        </div>
+                    )}
+                </div>
 
                 {/* PubMed Import Section */}
                 <div className="card mb-8">

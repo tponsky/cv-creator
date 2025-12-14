@@ -76,8 +76,13 @@ export default async function ReviewPage() {
                 ) : (
                     <ReviewQueue
                         entries={pendingEntries.map(e => ({
-                            ...e,
+                            id: e.id,
+                            title: e.title,
+                            description: e.description,
                             date: e.date ? e.date.toISOString() : null,
+                            url: e.url,
+                            sourceType: e.sourceType,
+                            suggestedCategory: e.suggestedCategory,
                         }))}
                         categories={cv?.categories || []}
                     />

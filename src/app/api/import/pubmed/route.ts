@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { searchAndFetchArticles, articleToCVEntry } from '@/lib/pubmed-api';
 
+// Normalize title for comparison (lowercase, remove punctuation, trim)
+function normalizeTitle(title: string): string {
+    return title
+        .toLowerCase()
+        .replace(/[^\w\s]/g, '') // Remove punctuation
+        .replace(/\s+/g, ' ')    // Normalize whitespace
+        .trim();
+}
+
 // Get first user (demo mode - no auth)
 async function getDemoUser() {
     return await prisma.user.findFirst();
@@ -23,7 +32,7 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        const result = await searchAndFetchArticles(authorName, 50);
+        const result = await searchAndFetchArticles(authorName, 200);
 
         // Transform to CV entry format
         const entries = result.articles.map(articleToCVEntry);
@@ -62,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     try {
         // Fetch articles from PubMed
-        const result = await searchAndFetchArticles(authorName, 100);
+        const result = await searchAndFetchArticles(authorName, 200);
 
         // Filter to selected PMIDs if provided
         const articlesToImport = pmids && pmids.length > 0
@@ -104,11 +113,18 @@ export async function POST(request: NextRequest) {
             })
             .filter(Boolean);
 
-        // Collect PMIDs from approved entries
+        // Collect PMIDs from approved entries + titles for CV imports
         const approvedPmids: string[] = [];
+        const approvedTitles: Set<string> = new Set();
+
         if (cv?.categories) {
             for (const cat of cv.categories) {
                 for (const entry of cat.entries) {
+                    // Add normalized title for title-based matching
+                    if (entry.title) {
+                        approvedTitles.add(normalizeTitle(entry.title));
+                    }
+                    // Also collect PMIDs if available
                     try {
                         const data = typeof entry.sourceData === 'object' ? entry.sourceData : JSON.parse(String(entry.sourceData) || '{}');
                         const pmid = (data as Record<string, unknown>)?.pmid;
@@ -120,14 +136,29 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Also collect titles from pending entries
+        const allPendingTitles = await prisma.pendingEntry.findMany({
+            where: { userId: user.id },
+            select: { title: true },
+        });
+        const pendingTitles = new Set(
+            allPendingTitles.map((e: { title: string }) => normalizeTitle(e.title))
+        );
+
         // Combine all existing PMIDs
         const existingPmidSet = new Set([...pendingPmids, ...approvedPmids]);
-        console.log(`Found ${pendingPmids.length} pending and ${approvedPmids.length} approved PMIDs to skip`);
+        const existingTitleSet = new Set([...Array.from(approvedTitles), ...Array.from(pendingTitles)]);
 
-        // Create pending entries for new articles
-        const newArticles = articlesToImport.filter(
-            a => !existingPmidSet.has(a.pmid)
-        );
+        console.log(`Found ${existingPmidSet.size} PMIDs and ${existingTitleSet.size} titles to check for duplicates`);
+
+        // Create pending entries for new articles (check both PMID and title)
+        const newArticles = articlesToImport.filter(a => {
+            // Skip if PMID already exists
+            if (existingPmidSet.has(a.pmid)) return false;
+            // Skip if title already exists (catches CV imports without PMIDs)
+            if (existingTitleSet.has(normalizeTitle(a.title))) return false;
+            return true;
+        });
 
         const pendingEntries = await Promise.all(
             newArticles.map(article => {

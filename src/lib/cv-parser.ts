@@ -124,15 +124,32 @@ ${truncatedText}`;
 }
 
 /**
- * Extract text from PDF buffer
- * pdf-parse has known issues with Next.js bundling
+ * Extract text from PDF buffer using pdfjs-dist
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-        const pdfParse = require('pdf-parse');
-        const data = await pdfParse(buffer);
-        return data.text;
+        // pdfjs-dist works better with Next.js than pdf-parse
+        const pdfjsLib = await import('pdfjs-dist');
+
+        // Load the PDF document
+        const uint8Array = new Uint8Array(buffer);
+        const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
+        const pdf = await loadingTask.promise;
+
+        // Extract text from all pages
+        const textContent: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pageText = content.items
+                .filter((item: any) => 'str' in item)
+                .map((item: any) => item.str as string)
+                .join(' ');
+            textContent.push(pageText);
+        }
+
+        return textContent.join('\n\n');
     } catch (error) {
         console.error('PDF parsing failed:', error);
         throw new Error('Failed to parse PDF. Please try uploading a Word (.docx) document instead.');

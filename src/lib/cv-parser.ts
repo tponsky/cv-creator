@@ -124,40 +124,20 @@ ${truncatedText}`;
 }
 
 /**
- * Extract text from PDF buffer using pdfjs-dist
- * Configured for Node.js server environment
+ * Extract text from PDF buffer using unpdf
+ * unpdf is designed for serverless/edge environments
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     try {
-        // Import pdfjs-dist with the legacy build for better Node.js compatibility
-        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        // unpdf is a serverless-friendly PDF library
+        const { extractText } = await import('unpdf');
 
-        // Load the PDF document with disabled worker (use main thread)
-        const uint8Array = new Uint8Array(buffer);
-        const loadingTask = pdfjsLib.getDocument({
-            data: uint8Array,
-            disableFontFace: true,
-            useSystemFonts: true,
-            // @ts-expect-error - disableWorker is a valid option but not in types
-            disableWorker: true,
-        });
-        const pdf = await loadingTask.promise;
+        // Extract text from the PDF
+        const result = await extractText(buffer);
 
-        // Extract text from all pages
-        const textContent: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            /* eslint-disable @typescript-eslint/no-explicit-any */
-            const pageText = content.items
-                .filter((item: any) => 'str' in item)
-                .map((item: any) => item.str as string)
-                .join(' ');
-            /* eslint-enable @typescript-eslint/no-explicit-any */
-            textContent.push(pageText);
-        }
-
-        return textContent.join('\n\n');
+        // Join all text content (result.text is string[])
+        const text = result.text;
+        return Array.isArray(text) ? text.join('\n') : (text || '');
     } catch (error) {
         console.error('PDF parsing failed:', error);
         throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}. Please try uploading a Word (.docx) document instead.`);

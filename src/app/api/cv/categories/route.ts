@@ -10,7 +10,7 @@ async function getDemoUser() {
 export async function GET() {
     const user = await getDemoUser();
     if (!user) {
-        return NextResponse.json({ error: 'No user found' }, { status: 404 });
+        return NextResponse.json({ error: 'No user found', categories: [] }, { status: 404 });
     }
 
     const cv = await prisma.cV.findUnique({
@@ -22,7 +22,7 @@ export async function GET() {
         },
     });
 
-    return NextResponse.json(cv?.categories || []);
+    return NextResponse.json({ categories: cv?.categories || [] });
 }
 
 // POST create a new category

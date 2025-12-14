@@ -28,14 +28,34 @@ export function ReviewQueue({ entries, categories, onRefresh }: ReviewQueueProps
     const router = useRouter();
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
     const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>(() => {
-        // Initialize with suggested categories where available
+        // Initialize with AI-suggested categories where available
         const initial: Record<string, string> = {};
         entries.forEach(entry => {
-            // Find Publications category or use first one
-            const pubCategory = categories.find(c => c.name.toLowerCase().includes('publication'));
-            const defaultCategory = pubCategory || categories[0];
-            if (defaultCategory) {
-                initial[entry.id] = defaultCategory.id;
+            let matchedCategory = null;
+
+            // First, try to match the AI-suggested category
+            if (entry.suggestedCategory) {
+                const suggested = entry.suggestedCategory.toLowerCase();
+                matchedCategory = categories.find(c =>
+                    c.name.toLowerCase().includes(suggested) ||
+                    suggested.includes(c.name.toLowerCase())
+                );
+            }
+
+            // Fallback: try Publications for pubmed entries
+            if (!matchedCategory && entry.sourceType === 'pubmed') {
+                matchedCategory = categories.find(c =>
+                    c.name.toLowerCase().includes('publication')
+                );
+            }
+
+            // Final fallback: use first category
+            if (!matchedCategory && categories.length > 0) {
+                matchedCategory = categories[0];
+            }
+
+            if (matchedCategory) {
+                initial[entry.id] = matchedCategory.id;
             }
         });
         return initial;

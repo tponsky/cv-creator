@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+// Force dynamic rendering - don't prerender at build time
+export const dynamic = 'force-dynamic';
+
 // Get first user (demo mode - no auth)
 async function getDemoUser() {
     return await prisma.user.findFirst();

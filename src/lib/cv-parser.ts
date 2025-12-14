@@ -132,16 +132,14 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
         // Import pdfjs-dist with the legacy build for better Node.js compatibility
         const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
-        // Disable the worker - not available in Node.js
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-
-        // Load the PDF document with disabled worker
+        // Load the PDF document with disabled worker (use main thread)
         const uint8Array = new Uint8Array(buffer);
         const loadingTask = pdfjsLib.getDocument({
             data: uint8Array,
-            useWorkerFetch: false,
-            isEvalSupported: false,
+            disableFontFace: true,
             useSystemFonts: true,
+            // @ts-expect-error - disableWorker is a valid option but not in types
+            disableWorker: true,
         });
         const pdf = await loadingTask.promise;
 

@@ -125,15 +125,24 @@ ${truncatedText}`;
 
 /**
  * Extract text from PDF buffer using pdfjs-dist
+ * Configured for Node.js server environment
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     try {
-        // pdfjs-dist works better with Next.js than pdf-parse
-        const pdfjsLib = await import('pdfjs-dist');
+        // Import pdfjs-dist with the legacy build for better Node.js compatibility
+        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
-        // Load the PDF document
+        // Disable the worker - not available in Node.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+
+        // Load the PDF document with disabled worker
         const uint8Array = new Uint8Array(buffer);
-        const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
+        const loadingTask = pdfjsLib.getDocument({
+            data: uint8Array,
+            useWorkerFetch: false,
+            isEvalSupported: false,
+            useSystemFonts: true,
+        });
         const pdf = await loadingTask.promise;
 
         // Extract text from all pages
@@ -153,7 +162,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
         return textContent.join('\n\n');
     } catch (error) {
         console.error('PDF parsing failed:', error);
-        throw new Error('Failed to parse PDF. Please try uploading a Word (.docx) document instead.');
+        throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}. Please try uploading a Word (.docx) document instead.`);
     }
 }
 

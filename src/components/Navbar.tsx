@@ -12,46 +12,29 @@ interface NavbarProps {
     };
 }
 
-interface RecentEntry {
-    id: string;
-    title: string;
-    categoryName: string;
-    createdAt: string;
-}
-
 export function Navbar({ user }: NavbarProps) {
     const pathname = usePathname();
     const [menuOpen, setMenuOpen] = useState(false);
-    const [recentOpen, setRecentOpen] = useState(false);
-    const [recentEntries, setRecentEntries] = useState<RecentEntry[]>([]);
     const [pendingCount, setPendingCount] = useState(0);
 
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + '/');
 
-    // Fetch recent entries and pending count
+    // Fetch pending count
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchPending = async () => {
             try {
-                // Fetch recent entries
-                const entriesRes = await fetch('/api/entries/recent', { credentials: 'include' });
-                if (entriesRes.ok) {
-                    const data = await entriesRes.json();
-                    setRecentEntries(data.entries || []);
-                }
-
-                // Fetch pending count
-                const pendingRes = await fetch('/api/pending', { credentials: 'include' });
-                if (pendingRes.ok) {
-                    const data = await pendingRes.json();
+                const res = await fetch('/api/pending', { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
                     setPendingCount(data.entries?.length || 0);
                 }
             } catch (error) {
-                console.error('Failed to fetch navbar data:', error);
+                console.error('Failed to fetch pending count:', error);
             }
         };
 
-        fetchData();
-        const interval = setInterval(fetchData, 30000);
+        fetchPending();
+        const interval = setInterval(fetchPending, 30000);
         return () => clearInterval(interval);
     }, []);
 
@@ -60,23 +43,11 @@ export function Navbar({ user }: NavbarProps) {
         { href: '/settings', label: 'Settings' },
     ];
 
-    const formatTimeAgo = (dateStr: string) => {
-        const date = new Date(dateStr);
-        const now = new Date();
-        const diff = now.getTime() - date.getTime();
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        if (days > 0) return `${days}d ago`;
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        if (hours > 0) return `${hours}h ago`;
-        const minutes = Math.floor(diff / (1000 * 60));
-        return `${minutes}m ago`;
-    };
-
     return (
         <nav className="sticky top-0 z-50 glass border-b border-border">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16">
-                    {/* Logo - now links to /cv */}
+                    {/* Logo */}
                     <Link href="/cv" className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
                             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,57 +59,6 @@ export function Navbar({ user }: NavbarProps) {
 
                     {/* Desktop Navigation */}
                     <div className="hidden md:flex items-center gap-2">
-                        {/* Recent Entries Dropdown */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setRecentOpen(!recentOpen)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${recentOpen ? 'bg-primary-500/20 text-primary-400' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                                    }`}
-                            >
-                                Recent Entries
-                                <svg className={`w-4 h-4 transition-transform ${recentOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-
-                            {recentOpen && (
-                                <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setRecentOpen(false)} />
-                                    <div className="absolute left-0 mt-2 w-80 rounded-xl bg-neutral-900 border border-border shadow-xl z-50 overflow-hidden">
-                                        <div className="p-3 border-b border-border">
-                                            <h3 className="font-semibold">Recent Entries</h3>
-                                        </div>
-                                        <div className="max-h-80 overflow-y-auto">
-                                            {recentEntries.length > 0 ? (
-                                                recentEntries.slice(0, 8).map((entry) => (
-                                                    <div key={entry.id} className="p-3 border-b border-border last:border-b-0 hover:bg-muted/30">
-                                                        <p className="font-medium text-sm truncate">{entry.title}</p>
-                                                        <div className="flex justify-between items-center mt-1">
-                                                            <span className="text-xs text-muted-foreground">{entry.categoryName}</span>
-                                                            <span className="text-xs text-muted-foreground">{formatTimeAgo(entry.createdAt)}</span>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div className="p-4 text-center text-muted-foreground">
-                                                    No recent entries
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="p-2 border-t border-border">
-                                            <Link
-                                                href="/cv"
-                                                className="block text-center text-sm text-primary-400 hover:text-primary-300 py-1"
-                                                onClick={() => setRecentOpen(false)}
-                                            >
-                                                View All →
-                                            </Link>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-
                         {/* Pending Review Button */}
                         {pendingCount > 0 && (
                             <Link

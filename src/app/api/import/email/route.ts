@@ -3,11 +3,32 @@ import prisma from '@/lib/prisma';
 import { parseEmailForCVEntries, EmailData } from '@/lib/email-parser';
 import { sendEmailConfirmation } from '@/lib/email-notifications';
 
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
+// Extract email address from "Name <email@example.com>" format or plain email
+function extractEmailAddress(from: string): string | null {
+    if (!from) return null;
+
+    // Try to extract email from "Name <email>" format
+    const match = from.match(/<([^>]+)>/);
+    if (match) {
+        return match[1].toLowerCase().trim();
+    }
+
+    // Check if it's already a plain email
+    if (from.includes('@')) {
+        return from.toLowerCase().trim();
+    }
+
+    return null;
 }
 
+// Find user by their email address (from forwarded email sender)
+async function findUserByEmail(senderEmail: string | null) {
+    if (!senderEmail) return null;
+
+    return await prisma.user.findUnique({
+        where: { email: senderEmail },
+    });
+}
 // Extract text from PDF buffer
 async function extractPdfText(base64Content: string): Promise<string> {
     try {
@@ -138,15 +159,22 @@ export async function POST(request: NextRequest) {
         console.log(`Processing email from: ${emailData.from}, subject: ${emailData.subject}`);
         console.log(`Body preview (first 200 chars): ${(emailData.textBody || emailData.htmlBody || '').substring(0, 200)}`);
 
-        // Get the demo user
-        const user = await getDemoUser();
+        // MULTI-USER: Find user by their registered email address
+        const senderEmail = extractEmailAddress(emailData.from);
+        console.log(`Looking up user by sender email: ${senderEmail}`);
+
+        const user = await findUserByEmail(senderEmail);
         if (!user) {
-            console.error('No user found for email processing');
+            console.error(`No registered user found for sender: ${emailData.from} (extracted: ${senderEmail})`);
+            // Return success to Resend (we received the email) but log that we couldn't process it
             return NextResponse.json({
-                success: false,
-                error: 'No user found'
+                success: true,
+                message: `Email received but no registered account found for ${senderEmail}. Please forward from your registered email address.`,
+                processed: false
             });
         }
+
+        console.log(`Found user: ${user.name} (${user.email}) for incoming email`);
 
         // Parse the email with AI
         const entries = await parseEmailForCVEntries(emailData);
@@ -225,8 +253,7 @@ export async function POST(request: NextRequest) {
             },
         });
 
-        // Send confirmation email
-        const senderEmail = extractEmail(emailData.from);
+        // Send confirmation email (senderEmail already defined above)
         if (senderEmail) {
             await sendEmailConfirmation(
                 senderEmail,
@@ -252,12 +279,6 @@ export async function POST(request: NextRequest) {
             error: String(error),
         });
     }
-}
-
-// Extract email from "Name <email>" format
-function extractEmail(from: string): string | null {
-    const match = from.match(/<([^>]+)>/) || from.match(/([^\s<]+@[^\s>]+)/);
-    return match ? match[1] : from.includes('@') ? from : null;
 }
 
 /**

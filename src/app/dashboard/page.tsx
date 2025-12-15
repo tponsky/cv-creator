@@ -80,8 +80,13 @@ export default async function DashboardPage() {
     const user = await getOrCreateDemoUser();
 
     const pendingCount = user?.pendingEntries?.length || 0;
+    const pendingBySource = {
+        pubmed: user?.pendingEntries?.filter((e: { sourceType?: string }) => e.sourceType === 'pubmed').length || 0,
+        email: user?.pendingEntries?.filter((e: { sourceType?: string }) => e.sourceType === 'email').length || 0,
+        other: user?.pendingEntries?.filter((e: { sourceType?: string }) => !['pubmed', 'email'].includes(e.sourceType || '')).length || 0,
+    };
     const totalEntries = user?.cv?.categories?.reduce(
-        (acc, cat) => acc + (cat.entries?.length || 0),
+        (acc: number, cat: { entries?: unknown[] }) => acc + (cat.entries?.length || 0),
         0
     ) || 0;
 
@@ -107,28 +112,70 @@ export default async function DashboardPage() {
                     </p>
                 </div>
 
-                {/* Pending Entries Alert */}
+                {/* Updates to Review Section */}
                 {pendingCount > 0 && (
-                    <Link href="/cv/review">
-                        <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-primary-500/20 to-accent-500/20 border border-primary-500/30 card-hover cursor-pointer">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full bg-primary-500/30 flex items-center justify-center">
-                                    <span className="text-xl font-bold text-primary-400">{pendingCount}</span>
-                                </div>
-                                <div className="flex-1">
-                                    <h3 className="font-semibold text-primary-400">
-                                        New entries to review
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground">
-                                        AI has suggested {pendingCount} new item{pendingCount > 1 ? 's' : ''} for your CV
-                                    </p>
-                                </div>
-                                <svg className="w-5 h-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
+                    <div className="mb-8 p-6 rounded-xl bg-gradient-to-r from-primary-500/10 to-accent-500/10 border border-primary-500/30">
+                        <div className="flex items-start gap-4 mb-4">
+                            <div className="w-12 h-12 rounded-full bg-primary-500/30 flex items-center justify-center flex-shrink-0">
+                                <span className="text-xl font-bold text-primary-400">{pendingCount}</span>
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-lg font-semibold text-primary-400 mb-1">
+                                    Updates to Review
+                                </h3>
+                                <p className="text-sm text-muted-foreground">
+                                    AI has found {pendingCount} new item{pendingCount > 1 ? 's' : ''} for your CV
+                                </p>
                             </div>
                         </div>
-                    </Link>
+
+                        {/* Categorized Breakdown */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                            {pendingBySource.pubmed > 0 && (
+                                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50 border border-border">
+                                    <span className="text-2xl">📚</span>
+                                    <div className="flex-1">
+                                        <p className="font-medium text-sm">PubMed Publications</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {pendingBySource.pubmed} new publication{pendingBySource.pubmed > 1 ? 's' : ''} found
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                            {pendingBySource.email > 0 && (
+                                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50 border border-border">
+                                    <span className="text-2xl">📧</span>
+                                    <div className="flex-1">
+                                        <p className="font-medium text-sm">From Forwarded Emails</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {pendingBySource.email} suggested entr{pendingBySource.email > 1 ? 'ies' : 'y'}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                            {pendingBySource.other > 0 && (
+                                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50 border border-border">
+                                    <span className="text-2xl">📄</span>
+                                    <div className="flex-1">
+                                        <p className="font-medium text-sm">Other Sources</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {pendingBySource.other} item{pendingBySource.other > 1 ? 's' : ''} to review
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <Link
+                            href="/cv/review"
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white font-medium text-sm transition-colors"
+                        >
+                            Review All Entries
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                        </Link>
+                    </div>
                 )}
 
                 {/* Quick Stats */}

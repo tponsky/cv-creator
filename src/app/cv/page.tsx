@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { CVEditor } from '@/components/CVEditor';
 import { ExportModal } from '@/components/ExportModal';
+import { RecentDropdown } from '@/components/RecentDropdown';
 import { requireAuth } from '@/lib/server-auth';
 import Link from 'next/link';
 
@@ -53,6 +54,7 @@ export default async function CVPage() {
     }
 
     const navUser = { id: user.id, name: user.name, email: user.email };
+    const totalEntries = cv.categories.reduce((acc, cat) => acc + cat.entries.length, 0);
 
     return (
         <div className="min-h-screen bg-background">
@@ -62,9 +64,13 @@ export default async function CVPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div>
                         <h1 className="text-3xl font-bold">{cv.title}</h1>
-                        <p className="text-muted-foreground">
-                            {cv.categories.length} categories • {cv.categories.reduce((acc, cat) => acc + cat.entries.length, 0)} entries
-                        </p>
+                        <div className="flex items-center gap-3 mt-1">
+                            <span className="text-lg font-semibold text-primary-400">{cv.categories.length} categories</span>
+                            <span className="text-muted-foreground">•</span>
+                            <span className="text-lg font-semibold text-primary-400">{totalEntries} entries</span>
+                            <span className="text-muted-foreground">•</span>
+                            <RecentDropdown />
+                        </div>
                     </div>
                     <div className="flex gap-2">
                         <ExportModal />

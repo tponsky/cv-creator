@@ -101,7 +101,8 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`Fetching full email content for ID: ${emailId}`);
-        const emailResponse = await fetch(`https://api.resend.com/emails/${emailId}`, {
+        // Use /emails/receiving/ endpoint for inbound emails
+        const emailResponse = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
             headers: {
                 'Authorization': `Bearer ${RESEND_API_KEY}`,
             },

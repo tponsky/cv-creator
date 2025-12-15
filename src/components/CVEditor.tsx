@@ -33,7 +33,7 @@ interface CVEditorProps {
 export function CVEditor({ cv }: CVEditorProps) {
     const router = useRouter();
     const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-        new Set(cv.categories.map(c => c.id))
+        new Set() // Start collapsed by default
     );
     const [loading, setLoading] = useState(false);
 

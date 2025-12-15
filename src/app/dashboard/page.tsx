@@ -127,6 +127,60 @@ export default async function DashboardPage() {
                     </p>
                 </div>
 
+                {/* New User Onboarding - Show if user has 0 entries */}
+                {totalEntries === 0 && (
+                    <div className="card mb-8 border-2 border-primary-500/30 bg-gradient-to-br from-primary-500/5 to-accent-500/5">
+                        <div className="text-center mb-6">
+                            <span className="text-4xl mb-4 block">🎉</span>
+                            <h2 className="text-2xl font-bold mb-2">Let&apos;s Get Started!</h2>
+                            <p className="text-muted-foreground">Follow these steps to set up your CV</p>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-3">
+                            {/* Step 1 */}
+                            <Link href="/settings" className="p-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors group">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <span className="w-8 h-8 rounded-full bg-primary-500/20 text-primary-400 flex items-center justify-center font-bold">1</span>
+                                    <h3 className="font-semibold group-hover:text-primary-400">Upload Your CV</h3>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    Upload a PDF or Word document. Our AI will extract your experiences, publications, and more.
+                                </p>
+                            </Link>
+
+                            {/* Step 2 */}
+                            <Link href="/settings" className="p-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors group">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <span className="w-8 h-8 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold">2</span>
+                                    <h3 className="font-semibold group-hover:text-accent-400">Import PubMed</h3>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    Have publications? Search by your name to import them automatically.
+                                </p>
+                            </Link>
+
+                            {/* Step 3 */}
+                            <div className="p-4 rounded-xl bg-secondary/50">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <span className="w-8 h-8 rounded-full bg-success/20 text-success flex items-center justify-center font-bold">3</span>
+                                    <h3 className="font-semibold">Forward Emails</h3>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    Got an award notification? Forward it to <span className="font-mono text-xs">cv@resend.cv-creator.com</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 text-center">
+                            <Link href="/settings" className="btn-primary">
+                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                </svg>
+                                Start by Uploading Your CV
+                            </Link>
+                        </div>
+                    </div>
+                )}
                 {/* Updates to Review Section */}
                 {pendingCount > 0 && (
                     <div className="mb-8 p-6 rounded-xl bg-gradient-to-r from-primary-500/10 to-accent-500/10 border border-primary-500/30">

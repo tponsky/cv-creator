@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
-}
+import { getUserFromRequest } from '@/lib/server-auth';
 
 // GET all categories for user's CV
-export async function GET() {
-    const user = await getDemoUser();
+export async function GET(request: NextRequest) {
+    const user = await getUserFromRequest(request);
     if (!user) {
-        return NextResponse.json({ error: 'No user found', categories: [] }, { status: 404 });
+        return NextResponse.json({ error: 'Unauthorized', categories: [] }, { status: 401 });
     }
 
     const cv = await prisma.cV.findUnique({
@@ -27,9 +23,9 @@ export async function GET() {
 
 // POST create a new category
 export async function POST(request: NextRequest) {
-    const user = await getDemoUser();
+    const user = await getUserFromRequest(request);
     if (!user) {
-        return NextResponse.json({ error: 'No user found' }, { status: 404 });
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { name, cvId } = await request.json();

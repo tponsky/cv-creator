@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { Navbar } from '@/components/Navbar';
 import { CVEditor } from '@/components/CVEditor';
+import { ExportModal } from '@/components/ExportModal';
 
 // Force dynamic rendering - don't prerender at build time
 export const dynamic = 'force-dynamic';
@@ -63,6 +64,7 @@ export default async function CVPage() {
                         </p>
                     </div>
                     <div className="flex gap-2">
+                        <ExportModal />
                         <a href="/cv/add" className="btn-primary">
                             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

@@ -9,6 +9,8 @@ export interface ParsedCVEntry {
     title: string;
     description: string | null;
     date: Date | null;
+    startDate: Date | null;
+    endDate: Date | null;
     location: string | null;
     url: string | null;
     suggestedCategory: string;
@@ -39,16 +41,22 @@ Types of CV-worthy content:
 - Editorial board appointments
 - Teaching assignments
 - Research collaborations
+- Visiting professorships
 
 For each piece of CV-worthy content found, extract:
 1. title: A concise title for the CV entry
 2. description: Brief description with relevant details (journal, conference, amount, etc.)
-3. date: The date of the event/achievement (ISO format or null)
-4. location: Location if relevant (city, institution, etc.)
-5. url: Any relevant URL mentioned
-6. suggestedCategory: Best category from: Publications, Presentations, Awards, Grants, Leadership, Teaching, Service
-7. confidence: 0-1 score of how confident you are this is CV-worthy
-8. reasoning: Brief explanation of why this should be on a CV
+3. date: For one-time events, the date (ISO format or null)
+4. startDate: For positions/ranges, the start date (ISO format or null)
+5. endDate: For positions/ranges, the end date (ISO format or null if ongoing)
+6. location: Location if relevant (city, institution, etc.)
+7. url: Any relevant URL mentioned
+8. suggestedCategory: Best category from: Publications, Presentations, Awards, Grants, Leadership, Teaching, Service
+9. confidence: 0-1 score of how confident you are this is CV-worthy
+10. reasoning: Brief explanation of why this should be on a CV
+
+Use 'date' for single events (presentations, awards given on a date).
+Use 'startDate' and 'endDate' for ongoing positions or date ranges.
 
 If the email contains NO CV-worthy content, return an empty array.
 
@@ -104,6 +112,8 @@ Extract any CV-worthy achievements. Return an empty array [] if none found.`;
             title: String(entry.title || ''),
             description: entry.description ? String(entry.description) : null,
             date: entry.date ? new Date(String(entry.date)) : null,
+            startDate: entry.startDate ? new Date(String(entry.startDate)) : null,
+            endDate: entry.endDate ? new Date(String(entry.endDate)) : null,
             location: entry.location ? String(entry.location) : null,
             url: entry.url ? String(entry.url) : null,
             suggestedCategory: String(entry.suggestedCategory || 'Other'),

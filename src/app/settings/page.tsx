@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { PubMedSettings } from '@/components/PubMedSettings';
+import { AuthGuard } from '@/components/AuthGuard';
 
 interface Publication {
     title: string;
@@ -20,7 +21,32 @@ interface CVImportResult {
     categories?: { name: string; entryCount: number }[];
 }
 
+interface UserProfile {
+    id: string;
+    email: string;
+    name: string | null;
+    institution: string | null;
+    phone: string | null;
+    address: string | null;
+    website: string | null;
+}
+
 export default function SettingsPage() {
+    return (
+        <AuthGuard>
+            {(user) => <SettingsContent initialUser={user as UserProfile} />}
+        </AuthGuard>
+    );
+}
+
+function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
+    // Profile state
+    const [profile, setProfile] = useState<UserProfile>(initialUser);
+    const [profileSaving, setProfileSaving] = useState(false);
+    const [profileMessage, setProfileMessage] = useState('');
+    const [profileError, setProfileError] = useState('');
+
+    // PubMed state
     const [authorName, setAuthorName] = useState('');
     const [publications, setPublications] = useState<Publication[]>([]);
     const [loading, setLoading] = useState(false);
@@ -36,7 +62,56 @@ export default function SettingsPage() {
     const [dragActive, setDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const navUser = { name: 'Demo User', email: 'demo@cvbuilder.com' };
+    const navUser = { name: profile.name || 'User', email: profile.email };
+
+    // Save profile handler
+    const handleSaveProfile = useCallback(async () => {
+        setProfileSaving(true);
+        setProfileMessage('');
+        setProfileError('');
+
+        try {
+            const response = await fetch('/api/user/profile', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: profile.name,
+                    institution: profile.institution,
+                    phone: profile.phone,
+                    address: profile.address,
+                    website: profile.website,
+                }),
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                setProfileMessage('Profile saved successfully!');
+                if (data.user) setProfile(data.user);
+            } else {
+                setProfileError(data.error || 'Failed to save profile');
+            }
+        } catch {
+            setProfileError('An error occurred while saving');
+        } finally {
+            setProfileSaving(false);
+        }
+    }, [profile]);
+
+    // Fetch profile on mount
+    useEffect(() => {
+        const fetchProfile = async () => {
+            try {
+                const response = await fetch('/api/user/profile');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.user) setProfile(data.user);
+                }
+            } catch (e) {
+                console.error('Failed to fetch profile:', e);
+            }
+        };
+        fetchProfile();
+    }, []);
 
     // CV Upload handlers
     const handleDrag = (e: React.DragEvent) => {
@@ -165,6 +240,96 @@ export default function SettingsPage() {
 
             <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <h1 className="text-3xl font-bold mb-8">Settings</h1>
+
+                {/* Profile Information Section */}
+                <div className="card mb-8">
+                    <h2 className="text-xl font-semibold mb-4">Profile Information</h2>
+                    <p className="text-muted-foreground mb-4">
+                        This information appears at the top of your exported CV.
+                    </p>
+
+                    {profileMessage && (
+                        <div className="p-3 rounded-lg bg-green-500/10 text-green-400 mb-4 text-sm">
+                            {profileMessage}
+                        </div>
+                    )}
+                    {profileError && (
+                        <div className="p-3 rounded-lg bg-destructive/10 text-destructive mb-4 text-sm">
+                            {profileError}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label className="label">Full Name</label>
+                            <input
+                                type="text"
+                                className="input"
+                                value={profile.name || ''}
+                                onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                                placeholder="Dr. Jane Smith"
+                            />
+                        </div>
+                        <div>
+                            <label className="label">Email</label>
+                            <input
+                                type="email"
+                                className="input bg-muted/30"
+                                value={profile.email}
+                                disabled
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
+                        </div>
+                        <div>
+                            <label className="label">Institution/University</label>
+                            <input
+                                type="text"
+                                className="input"
+                                value={profile.institution || ''}
+                                onChange={(e) => setProfile({ ...profile, institution: e.target.value })}
+                                placeholder="Harvard Medical School"
+                            />
+                        </div>
+                        <div>
+                            <label className="label">Phone</label>
+                            <input
+                                type="tel"
+                                className="input"
+                                value={profile.phone || ''}
+                                onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                                placeholder="+1 (555) 123-4567"
+                            />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="label">Address</label>
+                            <input
+                                type="text"
+                                className="input"
+                                value={profile.address || ''}
+                                onChange={(e) => setProfile({ ...profile, address: e.target.value })}
+                                placeholder="123 University Ave, Boston, MA 02115"
+                            />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="label">Website/Portfolio URL</label>
+                            <input
+                                type="url"
+                                className="input"
+                                value={profile.website || ''}
+                                onChange={(e) => setProfile({ ...profile, website: e.target.value })}
+                                placeholder="https://yourwebsite.com"
+                            />
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={handleSaveProfile}
+                        disabled={profileSaving}
+                        className="btn-primary"
+                    >
+                        {profileSaving ? 'Saving...' : 'Save Profile'}
+                    </button>
+                </div>
 
                 {/* CV Upload Section */}
                 <div className="card mb-8">

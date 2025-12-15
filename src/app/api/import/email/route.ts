@@ -24,7 +24,8 @@ async function extractPdfText(base64Content: string): Promise<string> {
     }
 }
 
-// Process attachments and extract text
+// Process attachments and extract text (currently unused - attachments need separate API calls)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function processAttachments(attachments: Array<{
     filename: string;
     content: string;
@@ -63,50 +64,83 @@ async function processAttachments(attachments: Array<{
  */
 export async function POST(request: NextRequest) {
     try {
-        // Parse the incoming email data from Resend
+        // Parse the incoming webhook data from Resend
         const body = await request.json();
 
-        // DEBUG: Log the full payload to understand Resend's format
+        // DEBUG: Log the full payload structure
         console.log('=== RESEND WEBHOOK PAYLOAD ===');
-        console.log('Keys:', Object.keys(body));
-        console.log('From field:', body.from);
-        console.log('Subject field:', body.subject);
-        console.log('Text length:', body.text?.length || 0);
-        console.log('HTML length:', body.html?.length || 0);
-        console.log('Data field exists:', !!body.data);
+        console.log('Type:', body.type);
+        console.log('Top-level keys:', Object.keys(body));
         if (body.data) {
             console.log('Data keys:', Object.keys(body.data));
+            console.log('Email ID:', body.data.email_id);
+            console.log('Subject from webhook:', body.data.subject);
+            console.log('From from webhook:', body.data.from);
         }
         console.log('=== END PAYLOAD DEBUG ===');
 
-        // Process attachments if present
-        let attachmentText = '';
-        if (body.attachments && Array.isArray(body.attachments)) {
-            console.log(`Found ${body.attachments.length} attachment(s)`);
-            const extractedTexts = await processAttachments(body.attachments);
-            attachmentText = extractedTexts.join('\n');
+        // Get the email_id from webhook - Resend wraps data in 'data' object
+        const emailId = body.data?.email_id;
+        if (!emailId) {
+            console.error('No email_id in webhook payload');
+            return NextResponse.json({
+                success: false,
+                error: 'No email_id in webhook'
+            });
         }
 
-        // Resend inbound email webhook format
-        // https://resend.com/docs/webhooks/inbound-emails
+        // Fetch the full email content via Resend API
+        // The webhook only sends metadata, we need to fetch html/text body
+        const RESEND_API_KEY = process.env.RESEND_API_KEY;
+        if (!RESEND_API_KEY) {
+            console.error('RESEND_API_KEY not configured');
+            return NextResponse.json({
+                success: false,
+                error: 'RESEND_API_KEY not configured'
+            });
+        }
+
+        console.log(`Fetching full email content for ID: ${emailId}`);
+        const emailResponse = await fetch(`https://api.resend.com/emails/${emailId}`, {
+            headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+            },
+        });
+
+        if (!emailResponse.ok) {
+            console.error('Failed to fetch email from Resend:', await emailResponse.text());
+            return NextResponse.json({
+                success: false,
+                error: 'Failed to fetch email content'
+            });
+        }
+
+        const fullEmail = await emailResponse.json();
+        console.log('Full email fetched - Subject:', fullEmail.subject);
+        console.log('HTML length:', fullEmail.html?.length || 0);
+        console.log('Text length:', fullEmail.text?.length || 0);
+
+        // Process attachments if present (need to fetch separately via API)
+        const attachmentText = ''; // TODO: Fetch attachments via API
+        // Note: Attachments would need to be fetched via /emails/{email_id}/attachments/{attachment_id}
+        // For now, we'll use the body content
+
+        // Build email data from the full email response
         const emailData: EmailData = {
-            from: body.from || body.envelope?.from || 'unknown',
-            subject: body.subject || 'No Subject',
-            textBody: (body.text || '') + attachmentText,  // Include attachment text
-            htmlBody: body.html || '',
-            date: body.date ? new Date(body.date) : new Date(),
+            from: fullEmail.from || body.data?.from || 'unknown',
+            subject: fullEmail.subject || 'No Subject',
+            textBody: (fullEmail.text || '') + attachmentText,
+            htmlBody: fullEmail.html || '',
+            date: fullEmail.created_at ? new Date(fullEmail.created_at) : new Date(),
         };
 
-        console.log(`Received email from: ${emailData.from}, subject: ${emailData.subject}`);
-        if (attachmentText) {
-            console.log(`Attachment text extracted: ${attachmentText.length} characters`);
-        }
+        console.log(`Processing email from: ${emailData.from}, subject: ${emailData.subject}`);
+        console.log(`Body preview (first 200 chars): ${(emailData.textBody || emailData.htmlBody || '').substring(0, 200)}`);
 
-        // Get the demo user (in a real app, you'd identify user from email address)
+        // Get the demo user
         const user = await getDemoUser();
         if (!user) {
             console.error('No user found for email processing');
-            // Return 200 to acknowledge receipt (don't want Resend to retry)
             return NextResponse.json({
                 success: false,
                 error: 'No user found'
@@ -182,7 +216,7 @@ export async function POST(request: NextRequest) {
                     from: emailData.from,
                     subject: emailData.subject,
                     entriesFound: pendingEntries.length,
-                    entryIds: pendingEntries.map(e => e.id),
+                    entryIds: pendingEntries.map((e: { id: string }) => e.id),
                     hadAttachments: Boolean(attachmentText),
                 },
             },

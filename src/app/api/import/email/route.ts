@@ -66,6 +66,19 @@ export async function POST(request: NextRequest) {
         // Parse the incoming email data from Resend
         const body = await request.json();
 
+        // DEBUG: Log the full payload to understand Resend's format
+        console.log('=== RESEND WEBHOOK PAYLOAD ===');
+        console.log('Keys:', Object.keys(body));
+        console.log('From field:', body.from);
+        console.log('Subject field:', body.subject);
+        console.log('Text length:', body.text?.length || 0);
+        console.log('HTML length:', body.html?.length || 0);
+        console.log('Data field exists:', !!body.data);
+        if (body.data) {
+            console.log('Data keys:', Object.keys(body.data));
+        }
+        console.log('=== END PAYLOAD DEBUG ===');
+
         // Process attachments if present
         let attachmentText = '';
         if (body.attachments && Array.isArray(body.attachments)) {

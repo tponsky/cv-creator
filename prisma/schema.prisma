@@ -154,6 +154,13 @@ model UserPreferences {
   categoryMappings Json?    // Learned patterns for categorization
   rejectedPatterns Json?    // Patterns user consistently rejects
   
+  // PubMed auto-update settings
+  pubmedEnabled     Boolean  @default(false)
+  pubmedAuthorName  String?  // Author name to search for
+  pubmedFrequency   String   @default("weekly") // 'daily' | 'weekly' | 'monthly'
+  pubmedLastChecked DateTime?
+  pubmedNotifyEmail Boolean  @default(true)
+  
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }

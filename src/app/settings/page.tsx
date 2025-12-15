@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { Navbar } from '@/components/Navbar';
+import { PubMedSettings } from '@/components/PubMedSettings';
 
 interface Publication {
     title: string;
@@ -168,8 +169,8 @@ export default function SettingsPage() {
 
                     <div
                         className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
-                                ? 'border-primary-500 bg-primary-500/10'
-                                : 'border-border hover:border-primary-500/50'
+                            ? 'border-primary-500 bg-primary-500/10'
+                            : 'border-border hover:border-primary-500/50'
                             }`}
                         onDragEnter={handleDrag}
                         onDragLeave={handleDrag}
@@ -239,9 +240,12 @@ export default function SettingsPage() {
                     )}
                 </div>
 
-                {/* PubMed Import Section */}
-                <div className="card mb-8">
-                    <h2 className="text-xl font-semibold mb-4">PubMed Import</h2>
+                {/* PubMed Auto-Updates Section */}
+                <PubMedSettings />
+
+                {/* PubMed Manual Import Section */}
+                <div className="card mb-8 mt-8">
+                    <h2 className="text-xl font-semibold mb-4">PubMed Manual Search</h2>
                     <p className="text-muted-foreground mb-4">
                         Search for your publications on PubMed and import them to your CV.
                     </p>

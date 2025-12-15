@@ -74,6 +74,7 @@ export function ReviewQueue({ entries, categories, onRefresh }: ReviewQueueProps
             const response = await fetch(`/api/pending/${entryId}/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ categoryId }),
             });
 
@@ -100,6 +101,7 @@ export function ReviewQueue({ entries, categories, onRefresh }: ReviewQueueProps
         try {
             const response = await fetch(`/api/pending/${entryId}`, {
                 method: 'DELETE',
+                credentials: 'include',
             });
 
             if (!response.ok) {

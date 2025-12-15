@@ -1,14 +1,19 @@
 import prisma from '@/lib/prisma';
 import Link from 'next/link';
 import { Navbar } from '@/components/Navbar';
+import { requireAuth } from '@/lib/server-auth';
 
 // Force dynamic rendering - don't prerender at build time
 export const dynamic = 'force-dynamic';
 
-// Default user for demo mode (no authentication)
-async function getOrCreateDemoUser() {
-    // Get first user or create one
-    let user = await prisma.user.findFirst({
+// Get authenticated user with full CV data
+async function getAuthenticatedUserWithData() {
+    // This will redirect to /login if not authenticated
+    const authUser = await requireAuth();
+
+    // Fetch full user with CV and pending entries
+    const user = await prisma.user.findUnique({
+        where: { id: authUser.id },
         include: {
             cv: {
                 include: {
@@ -30,27 +35,26 @@ async function getOrCreateDemoUser() {
         },
     });
 
-    if (!user) {
-        // Create a demo user if none exists
-        user = await prisma.user.create({
+    // If user exists but has no CV, create one
+    if (user && !user.cv) {
+        await prisma.cV.create({
             data: {
-                email: 'demo@cvbuilder.com',
-                password: 'demo-password-not-used',
-                name: 'Demo User',
-                cv: {
-                    create: {
-                        title: 'My CV',
-                        categories: {
-                            create: [
-                                { name: 'Education', displayOrder: 1 },
-                                { name: 'Experience', displayOrder: 2 },
-                                { name: 'Publications', displayOrder: 3 },
-                                { name: 'Awards', displayOrder: 4 },
-                            ],
-                        },
-                    },
+                userId: user.id,
+                title: `${user.name || 'My'}'s CV`,
+                categories: {
+                    create: [
+                        { name: 'Education', displayOrder: 0 },
+                        { name: 'Experience', displayOrder: 1 },
+                        { name: 'Publications', displayOrder: 2 },
+                        { name: 'Presentations', displayOrder: 3 },
+                        { name: 'Awards', displayOrder: 4 },
+                    ],
                 },
             },
+        });
+        // Re-fetch with new CV
+        return prisma.user.findUnique({
+            where: { id: authUser.id },
             include: {
                 cv: {
                     include: {
@@ -77,7 +81,7 @@ async function getOrCreateDemoUser() {
 }
 
 export default async function DashboardPage() {
-    const user = await getOrCreateDemoUser();
+    const user = await getAuthenticatedUserWithData();
 
     const pendingCount = user?.pendingEntries?.length || 0;
     const pendingBySource = {
@@ -91,6 +95,11 @@ export default async function DashboardPage() {
     ) || 0;
 
     // Create a simple user object for the Navbar
+    if (!user) {
+        // This shouldn't happen since requireAuth redirects, but handle edge case
+        return null;
+    }
+
     const navUser = {
         id: user.id,
         name: user.name,

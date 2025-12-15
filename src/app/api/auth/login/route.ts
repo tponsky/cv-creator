@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { compare } from 'bcryptjs';
-import { sign } from 'jsonwebtoken';
+import { createToken, AUTH_COOKIE_OPTIONS } from '@/lib/jwt';
 import prisma from '@/lib/prisma';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'cv-creator-secret-key-change-in-production';
 
 export async function POST(request: NextRequest) {
     try {
@@ -42,12 +40,12 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Generate JWT token
-        const token = sign(
-            { userId: user.id, email: user.email },
-            JWT_SECRET,
-            { expiresIn: '30d' }
-        );
+        // Generate JWT token using jose (consistent with jwt.ts)
+        const token = await createToken({
+            id: user.id,
+            email: user.email,
+            name: user.name || undefined,
+        });
 
         // Create response with user data
         const response = NextResponse.json({
@@ -61,13 +59,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Set HTTP-only cookie for security
-        response.cookies.set('auth-token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 30 * 24 * 60 * 60, // 30 days
-            path: '/',
-        });
+        response.cookies.set('auth-token', token, AUTH_COOKIE_OPTIONS);
 
         return response;
     } catch (error) {
@@ -78,3 +70,4 @@ export async function POST(request: NextRequest) {
         );
     }
 }
+

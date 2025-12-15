@@ -21,7 +21,6 @@ export function Navbar({ user }: NavbarProps) {
     const navLinks = [
         { href: '/dashboard', label: 'Dashboard' },
         { href: '/cv', label: 'My CV' },
-        { href: '/cv/review', label: 'Review' },
         { href: '/settings', label: 'Settings' },
     ];
 

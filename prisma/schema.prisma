@@ -75,8 +75,12 @@ model Entry {
   category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   title       String
   description String?   @db.Text
-  date        DateTime?
-  endDate     DateTime? // For ongoing positions/roles
+  
+  // Date fields - supports both single dates and date ranges
+  date        DateTime? // Single date (for awards, publications)
+  startDate   DateTime? // Start of range (for positions, education)
+  endDate     DateTime? // End of range (null = "Present")
+  
   location    String?
   url         String?
   
@@ -104,7 +108,12 @@ model PendingEntry {
   suggestedCategory String?
   title             String
   description       String?  @db.Text
+  
+  // Date fields - supports both single dates and date ranges
   date              DateTime?
+  startDate         DateTime?
+  endDate           DateTime?
+  
   location          String?
   url               String?
   

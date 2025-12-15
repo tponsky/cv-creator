@@ -19,6 +19,8 @@ interface CVEntry {
     title: string;
     description: string | null;
     date: Date | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
     location: string | null;
     url: string | null;
 }
@@ -37,12 +39,28 @@ interface CVData {
 }
 
 // Format date for display
-function formatDate(date: Date | null): string {
+function formatDate(date: Date | null | undefined): string {
     if (!date) return '';
     const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
     const year = d.getFullYear();
     const month = d.toLocaleString('en-US', { month: 'short' });
     return `${month} ${year}`;
+}
+
+// Format date range
+function formatDateRange(startDate: Date | null | undefined, endDate: Date | null | undefined, singleDate: Date | null | undefined): string {
+    if (startDate) {
+        const start = formatDate(startDate);
+        if (endDate) {
+            return `${start} - ${formatDate(endDate)}`;
+        }
+        return `${start} - Present`;
+    }
+    if (singleDate) {
+        return formatDate(singleDate);
+    }
+    return '';
 }
 
 // Create section header
@@ -65,14 +83,15 @@ function createSectionHeader(title: string): Paragraph {
 // Create entry paragraph
 function createEntry(entry: CVEntry): Paragraph[] {
     const paragraphs: Paragraph[] = [];
+    const dateStr = formatDateRange(entry.startDate, entry.endDate, entry.date);
 
     // Title with date
     const titleRuns: TextRun[] = [
         new TextRun({ text: entry.title, bold: true }),
     ];
 
-    if (entry.date) {
-        titleRuns.push(new TextRun({ text: ` (${formatDate(entry.date)})` }));
+    if (dateStr) {
+        titleRuns.push(new TextRun({ text: ` (${dateStr})` }));
     }
 
     paragraphs.push(new Paragraph({

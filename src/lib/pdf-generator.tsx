@@ -74,6 +74,8 @@ interface CVEntry {
     title: string;
     description: string | null;
     date: Date | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
     location: string | null;
     url: string | null;
 }
@@ -92,29 +94,49 @@ interface CVData {
 }
 
 // Format date for display
-function formatDate(date: Date | null): string {
+function formatDate(date: Date | null | undefined): string {
     if (!date) return '';
     const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
     const year = d.getFullYear();
     const month = d.toLocaleString('en-US', { month: 'short' });
     return `${month} ${year}`;
 }
 
+// Format date range
+function formatDateRange(startDate: Date | null | undefined, endDate: Date | null | undefined, singleDate: Date | null | undefined): string {
+    if (startDate) {
+        const start = formatDate(startDate);
+        if (endDate) {
+            return `${start} - ${formatDate(endDate)}`;
+        }
+        return `${start} - Present`;
+    }
+    if (singleDate) {
+        return formatDate(singleDate);
+    }
+    return '';
+}
+
 // Entry component
-const EntryComponent = ({ entry }: { entry: CVEntry }) => (
-    <View style={styles.entryContainer}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={styles.entryTitle}>{entry.title}</Text>
-            {entry.date && <Text style={styles.entryDate}>{formatDate(entry.date)}</Text>}
+const EntryComponent = ({ entry }: { entry: CVEntry }) => {
+    const dateStr = formatDateRange(entry.startDate, entry.endDate, entry.date);
+
+    return (
+        <View style={styles.entryContainer}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={styles.entryTitle}>{entry.title}</Text>
+                {dateStr && <Text style={styles.entryDate}>{dateStr}</Text>}
+            </View>
+            {entry.description && (
+                <Text style={styles.entryDescription}>{entry.description}</Text>
+            )}
+            {entry.location && (
+                <Text style={styles.entryLocation}>{entry.location}</Text>
+            )}
         </View>
-        {entry.description && (
-            <Text style={styles.entryDescription}>{entry.description}</Text>
-        )}
-        {entry.location && (
-            <Text style={styles.entryLocation}>{entry.location}</Text>
-        )}
-    </View>
-);
+    );
+};
 
 // Section component
 const SectionComponent = ({ title, entries }: { title: string; entries: CVEntry[] }) => (

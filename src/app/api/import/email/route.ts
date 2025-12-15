@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { parseEmailForCVEntries, EmailData } from '@/lib/email-parser';
+import { sendEmailConfirmation } from '@/lib/email-notifications';
 
 // Get first user (demo mode - no auth)
 async function getDemoUser() {
@@ -46,6 +47,22 @@ export async function POST(request: NextRequest) {
 
         if (entries.length === 0) {
             console.log('No CV-worthy content found in email');
+
+            // Log activity even for no results
+            await prisma.activity.create({
+                data: {
+                    userId: user.id,
+                    type: 'email_import',
+                    title: 'Email processed - no entries found',
+                    description: `Subject: ${emailData.subject}`,
+                    metadata: {
+                        from: emailData.from,
+                        subject: emailData.subject,
+                        entriesFound: 0,
+                    },
+                },
+            });
+
             return NextResponse.json({
                 success: true,
                 message: 'Email processed, no CV-worthy content found',
@@ -81,6 +98,36 @@ export async function POST(request: NextRequest) {
 
         console.log(`Created ${pendingEntries.length} pending entries from email`);
 
+        // Log activity
+        await prisma.activity.create({
+            data: {
+                userId: user.id,
+                type: 'email_import',
+                title: `${pendingEntries.length} ${pendingEntries.length === 1 ? 'entry' : 'entries'} from email`,
+                description: `Subject: ${emailData.subject}`,
+                metadata: {
+                    from: emailData.from,
+                    subject: emailData.subject,
+                    entriesFound: pendingEntries.length,
+                    entryIds: pendingEntries.map(e => e.id),
+                },
+            },
+        });
+
+        // Send confirmation email
+        const senderEmail = extractEmail(emailData.from);
+        if (senderEmail) {
+            await sendEmailConfirmation(
+                senderEmail,
+                emailData.subject,
+                entries.map(e => ({
+                    title: e.title,
+                    suggestedCategory: e.suggestedCategory,
+                    confidence: e.confidence,
+                }))
+            );
+        }
+
         return NextResponse.json({
             success: true,
             message: `Found ${entries.length} CV-worthy items`,
@@ -94,6 +141,12 @@ export async function POST(request: NextRequest) {
             error: String(error),
         });
     }
+}
+
+// Extract email from "Name <email>" format
+function extractEmail(from: string): string | null {
+    const match = from.match(/<([^>]+)>/) || from.match(/([^\s<]+@[^\s>]+)/);
+    return match ? match[1] : from.includes('@') ? from : null;
 }
 
 /**

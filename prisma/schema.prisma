@@ -185,3 +185,28 @@ model DataSource {
   @@unique([userId, type])
   @@index([userId])
 }
+
+// ============================================
+// ACTIVITY LOG (for dashboard feed)
+// ============================================
+
+model Activity {
+  id          String   @id @default(cuid())
+  userId      String
+  
+  // Activity type
+  type        String   // 'email_import' | 'pubmed_import' | 'cv_import' | 'entry_approved' | 'entry_rejected'
+  
+  // Details
+  title       String   // Short description: "3 entries from email"
+  description String?  // Optional longer description
+  metadata    Json?    // Additional data (entry IDs, source info, etc.)
+  
+  // Status
+  read        Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}

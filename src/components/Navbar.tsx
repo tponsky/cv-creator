@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import { PendingBadge } from './PendingBadge';
 
 interface NavbarProps {
     user: {
@@ -56,6 +57,7 @@ export function Navbar({ user }: NavbarProps) {
 
                     {/* User Menu */}
                     <div className="flex items-center gap-3">
+                        <PendingBadge />
                         <div className="hidden sm:block text-right">
                             <p className="text-sm font-medium">{user.name}</p>
                             <p className="text-xs text-muted-foreground">{user.email}</p>

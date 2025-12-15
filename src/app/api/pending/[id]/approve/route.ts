@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
-}
+import { getUserFromRequest } from '@/lib/server-auth';
 
 /**
  * POST /api/pending/[id]/approve
@@ -14,9 +10,9 @@ export async function POST(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
-    const user = await getDemoUser();
+    const user = await getUserFromRequest(request);
     if (!user) {
-        return NextResponse.json({ error: 'No user found' }, { status: 404 });
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const entryId = params.id;

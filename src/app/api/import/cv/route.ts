@@ -112,6 +112,32 @@ export async function POST(request: NextRequest) {
         }
 
         let totalEntries = 0;
+        // GET ALL EXISTING ENTRIES AND PENDING ENTRIES FOR DEDUPLICATION
+        const existingEntries = await prisma.entry.findMany({
+            where: {
+                category: {
+                    cvId: cv.id,
+                },
+            },
+            select: { title: true },
+        });
+
+        const existingPending = await prisma.pendingEntry.findMany({
+            where: {
+                userId: user.id,
+                status: 'pending',
+            },
+            select: { title: true },
+        });
+
+        // Create a Set of normalized existing titles for fast lookup
+        const normalizeTitle = (title: string) => title.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
+        const existingTitles = new Set([
+            ...existingEntries.map(e => normalizeTitle(e.title)),
+            ...existingPending.map(e => normalizeTitle(e.title)),
+        ]);
+
+        console.log(`Found ${existingTitles.size} existing entries/pending for deduplication`);
 
         // Process each category
         for (const parsedCategory of parsedCV.categories) {
@@ -141,8 +167,19 @@ export async function POST(request: NextRequest) {
                 console.log(`Created category: ${category.name}`);
             }
 
-            // Create pending entries for each item
+            // Create pending entries for each item (with deduplication)
+            let skippedDuplicates = 0;
             for (const entry of parsedCategory.entries) {
+                // CHECK FOR DUPLICATES - skip if similar title already exists
+                const normalizedNewTitle = normalizeTitle(entry.title);
+                if (existingTitles.has(normalizedNewTitle)) {
+                    skippedDuplicates++;
+                    continue; // Skip this duplicate entry
+                }
+
+                // Add to set to avoid duplicates within same import
+                existingTitles.add(normalizedNewTitle);
+
                 await prisma.pendingEntry.create({
                     data: {
                         userId: user.id,
@@ -162,13 +199,17 @@ export async function POST(request: NextRequest) {
                 });
                 totalEntries++;
             }
+
+            if (skippedDuplicates > 0) {
+                console.log(`Skipped ${skippedDuplicates} duplicates in ${parsedCategory.name}`);
+            }
         }
 
-        console.log(`Created ${totalEntries} pending entries`);
+        console.log(`Created ${totalEntries} NEW pending entries (duplicates were skipped)`);
 
         return NextResponse.json({
             success: true,
-            message: `Imported ${parsedCV.categories.length} categories with ${totalEntries} entries`,
+            message: `Imported ${parsedCV.categories.length} categories with ${totalEntries} new entries (duplicates skipped)`,
             categoriesFound: parsedCV.categories.length,
             entriesCreated: totalEntries,
             categories: parsedCV.categories.map(c => ({

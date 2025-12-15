@@ -38,17 +38,28 @@ interface CVData {
     categories: CVCategory[];
 }
 
-// Format date for display
+// Format date for display - detect if it's likely a year-only date
 function formatDate(date: Date | null | undefined): string {
     if (!date) return '';
     const d = new Date(date);
     if (isNaN(d.getTime())) return '';
+
     const year = d.getFullYear();
-    const month = d.toLocaleString('en-US', { month: 'short' });
-    return `${month} ${year}`;
+    const month = d.getMonth(); // 0-indexed
+    const day = d.getDate();
+
+    // If date is January 1st, it's likely a year-only date
+    // (when someone enters just "2024", it becomes "2024-01-01")
+    if (month === 0 && day === 1) {
+        return String(year);
+    }
+
+    // Otherwise show month and year
+    const monthName = d.toLocaleString('en-US', { month: 'short' });
+    return `${monthName} ${year}`;
 }
 
-// Format date range
+// Format date range with smart formatting
 function formatDateRange(startDate: Date | null | undefined, endDate: Date | null | undefined, singleDate: Date | null | undefined): string {
     if (startDate) {
         const start = formatDate(startDate);
@@ -62,6 +73,7 @@ function formatDateRange(startDate: Date | null | undefined, endDate: Date | nul
     }
     return '';
 }
+
 
 // Create section header
 function createSectionHeader(title: string): Paragraph {

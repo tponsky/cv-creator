@@ -89,10 +89,16 @@ export default async function DashboardPage() {
         email: user?.pendingEntries?.filter((e: { sourceType?: string }) => e.sourceType === 'email').length || 0,
         other: user?.pendingEntries?.filter((e: { sourceType?: string }) => !['pubmed', 'email'].includes(e.sourceType || '')).length || 0,
     };
-    const totalEntries = user?.cv?.categories?.reduce(
-        (acc: number, cat: { entries?: unknown[] }) => acc + (cat.entries?.length || 0),
-        0
-    ) || 0;
+    // Get the ACTUAL total entry count (not just the preview limit of 3 per category)
+    const totalEntries = user?.cv?.id
+        ? await prisma.entry.count({
+            where: {
+                category: {
+                    cvId: user.cv.id,
+                },
+            },
+        })
+        : 0;
 
     // Create a simple user object for the Navbar
     if (!user) {

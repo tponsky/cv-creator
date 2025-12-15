@@ -1,21 +1,21 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { getUserFromRequest } from '@/lib/server-auth';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/pending/approve-all
- * Approve all pending entries for the current user
+ * Approve all pending entries for the current authenticated user
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
     try {
-        // Get the first user (demo mode)
-        const user = await prisma.user.findFirst();
+        const user = await getUserFromRequest(request);
         if (!user) {
             return NextResponse.json(
-                { error: 'No user found' },
-                { status: 404 }
+                { error: 'Unauthorized' },
+                { status: 401 }
             );
         }
 

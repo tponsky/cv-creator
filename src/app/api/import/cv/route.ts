@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { parseCV, extractTextFromFile } from '@/lib/cv-parser';
+import { getUserFromRequest } from '@/lib/server-auth';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -26,11 +27,6 @@ function parseDate(dateStr: string | null | undefined): Date | null {
     }
 
     return date;
-}
-
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
 }
 
 /**
@@ -63,12 +59,12 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Get user
-        const user = await getDemoUser();
+        // Get authenticated user
+        const user = await getUserFromRequest(request);
         if (!user) {
             return NextResponse.json(
-                { error: 'No user found' },
-                { status: 404 }
+                { error: 'Unauthorized' },
+                { status: 401 }
             );
         }
 
@@ -96,6 +92,24 @@ export async function POST(request: NextRequest) {
         const parsedCV = await parseCV(text);
 
         console.log(`Parsed ${parsedCV.categories.length} categories from CV`);
+
+        // AUTO-POPULATE PROFILE from CV header info
+        if (parsedCV.profile) {
+            const profileUpdate: Record<string, string | null> = {};
+            if (parsedCV.profile.name) profileUpdate.name = parsedCV.profile.name;
+            if (parsedCV.profile.phone) profileUpdate.phone = parsedCV.profile.phone;
+            if (parsedCV.profile.address) profileUpdate.address = parsedCV.profile.address;
+            if (parsedCV.profile.institution) profileUpdate.institution = parsedCV.profile.institution;
+            if (parsedCV.profile.website) profileUpdate.website = parsedCV.profile.website;
+
+            if (Object.keys(profileUpdate).length > 0) {
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: profileUpdate,
+                });
+                console.log('Updated user profile from CV:', profileUpdate);
+            }
+        }
 
         let totalEntries = 0;
 

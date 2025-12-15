@@ -18,14 +18,32 @@ export interface ParsedEntry {
     url: string | null;
 }
 
+export interface ParsedProfile {
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    institution: string | null;
+    website: string | null;
+}
+
 export interface ParsedCV {
+    profile: ParsedProfile;
     categories: ParsedCategory[];
     rawText: string;
 }
 
 const SYSTEM_PROMPT = `You are an expert CV parser. Your job is to analyze CV/resume text and extract it into structured data.
 
-For each section you find (like Publications, Presentations, Awards, Grants, Education, Experience, etc.), extract:
+FIRST, extract the person's contact/profile information from the header:
+- name: Full name of the person
+- email: Email address if present
+- phone: Phone number if present
+- address: Mailing address or location if present
+- institution: Current university/hospital/company affiliation
+- website: Personal website or portfolio URL if present
+
+Then, for each section you find (like Publications, Presentations, Awards, Grants, Education, Experience, etc.), extract:
 1. The category name (section header)
 2. All entries within that section
 
@@ -51,6 +69,14 @@ Common CV sections to look for:
 
 Return your response as a JSON object with this structure:
 {
+  "profile": {
+    "name": "Dr. Jane Smith",
+    "email": "jane.smith@university.edu",
+    "phone": "+1 (555) 123-4567",
+    "address": "123 University Ave, Boston, MA",
+    "institution": "Harvard Medical School",
+    "website": "https://janesmith.com"
+  },
   "categories": [
     {
       "name": "Publications",
@@ -131,7 +157,7 @@ export async function parseCV(text: string): Promise<ParsedCV> {
     const chunkPromises = chunks.map((chunk, i) =>
         parseCVChunk(chunk).catch(error => {
             console.error(`Error processing chunk ${i + 1}:`, error);
-            return { categories: [], rawText: chunk };
+            return { profile: { name: null, email: null, phone: null, address: null, institution: null, website: null }, categories: [], rawText: chunk };
         })
     );
 
@@ -154,7 +180,11 @@ export async function parseCV(text: string): Promise<ParsedCV> {
 
     console.log(`Merged ${allCategories.length} categories from ${chunks.length} chunks`);
 
+    // Use the first profile found (usually from the first chunk which has the header)
+    const profile = results.find(r => r.profile?.name)?.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null };
+
     return {
+        profile,
         categories: allCategories,
         rawText: text,
     };
@@ -212,12 +242,14 @@ ${text}`;
     try {
         const parsed = JSON.parse(content);
         return {
+            profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
             categories: parsed.categories || [],
             rawText: text,
         };
     } catch (e) {
         console.error('Failed to parse CV chunk response:', content.slice(0, 500), e);
         return {
+            profile: { name: null, email: null, phone: null, address: null, institution: null, website: null },
             categories: [],
             rawText: text,
         };

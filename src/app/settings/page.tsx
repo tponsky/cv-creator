@@ -357,9 +357,16 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                         />
 
                         {cvUploading ? (
-                            <div className="flex flex-col items-center">
-                                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500 mb-4"></div>
-                                <p className="text-muted-foreground">Parsing CV with AI... This may take a moment.</p>
+                            <div className="flex flex-col items-center py-4">
+                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500/30 border-t-primary-500 mb-4"></div>
+                                <h3 className="text-lg font-semibold mb-2">Processing Your CV...</h3>
+                                <p className="text-muted-foreground text-center max-w-md">
+                                    Our AI is extracting your experiences, publications, and achievements.
+                                </p>
+                                <div className="mt-4 p-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-sm">
+                                    <p className="text-primary-400 font-medium">⏱️ This typically takes 2-3 minutes for large CVs</p>
+                                    <p className="text-muted-foreground mt-1">Please don&apos;t close this page. We&apos;re working on it!</p>
+                                </div>
                             </div>
                         ) : (
                             <>

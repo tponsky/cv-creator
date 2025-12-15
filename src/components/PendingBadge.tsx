@@ -110,7 +110,7 @@ export function PendingBadge() {
                         className="fixed inset-0 z-10"
                         onClick={() => setShowDropdown(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-80 bg-card border border-border rounded-lg shadow-xl z-20">
+                    <div className="absolute right-0 mt-2 w-80 bg-neutral-900 border border-border rounded-lg shadow-xl z-20">
                         <div className="p-3 border-b border-border flex items-center justify-between">
                             <h3 className="font-semibold">Activity</h3>
                             {data && data.pendingCount > 0 && (

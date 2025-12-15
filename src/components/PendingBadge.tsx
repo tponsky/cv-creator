@@ -65,10 +65,33 @@ export function PendingBadge() {
         }
     };
 
+    const markAsRead = async () => {
+        try {
+            await fetch('/api/activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'markAllRead' }),
+            });
+            // Refresh to update read status
+            fetchActivity();
+        } catch (error) {
+            console.error('Failed to mark as read:', error);
+        }
+    };
+
+    const handleBellClick = () => {
+        const wasShowing = showDropdown;
+        setShowDropdown(!showDropdown);
+        // Mark activities as read when opening the dropdown
+        if (!wasShowing && data && data.activities.some(a => !a.read)) {
+            markAsRead();
+        }
+    };
+
     return (
         <div className="relative">
             <button
-                onClick={() => setShowDropdown(!showDropdown)}
+                onClick={handleBellClick}
                 className="relative p-2 text-muted-foreground hover:text-foreground transition-colors"
             >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

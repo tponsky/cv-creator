@@ -114,7 +114,13 @@ export default function SettingsPage() {
             }
 
             setPublications(data.entries || []);
-            setMessage(`Found ${data.count} publications`);
+            const totalFound = data.totalFound || data.count || 0;
+            const newCount = data.newCount ?? totalFound;
+            if (newCount === totalFound) {
+                setMessage(`Found ${totalFound} publications (all are new)`);
+            } else {
+                setMessage(`Found ${totalFound} publications, ${newCount} new to add`);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Search failed');
         } finally {

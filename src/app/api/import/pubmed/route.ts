@@ -19,6 +19,7 @@ async function getDemoUser() {
 /**
  * GET /api/import/pubmed
  * Search PubMed for publications by author name
+ * Returns totalFound, newCount, and marks entries as isNew
  */
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
@@ -32,14 +33,111 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+        const user = await getDemoUser();
+
         const result = await searchAndFetchArticles(authorName, 200);
 
         // Transform to CV entry format
         const entries = result.articles.map(articleToCVEntry);
 
+        // If no user, just return all as new
+        if (!user) {
+            return NextResponse.json({
+                totalFound: result.count,
+                newCount: result.count,
+                entries: entries.map(e => ({ ...e, isNew: true })),
+            });
+        }
+
+        // Get existing PMIDs from pending entries
+        const existingPendingPmids = await prisma.pendingEntry.findMany({
+            where: {
+                userId: user.id,
+                sourceType: 'pubmed',
+            },
+            select: { sourceData: true },
+        });
+
+        // Get existing entries from CV
+        const cv = await prisma.cV.findUnique({
+            where: { userId: user.id },
+            include: {
+                categories: {
+                    include: {
+                        entries: {
+                            select: { title: true, sourceData: true }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Collect PMIDs from pending entries
+        const pendingPmids = new Set(
+            existingPendingPmids
+                .map((e: { sourceData: unknown }) => {
+                    try {
+                        const data = typeof e.sourceData === 'object' ? e.sourceData : JSON.parse(String(e.sourceData) || '{}');
+                        return (data as Record<string, unknown>)?.pmid as string;
+                    } catch {
+                        return null;
+                    }
+                })
+                .filter(Boolean)
+        );
+
+        // Collect PMIDs and titles from approved entries
+        const approvedPmids = new Set<string>();
+        const approvedTitles = new Set<string>();
+
+        if (cv?.categories) {
+            for (const cat of cv.categories) {
+                for (const entry of cat.entries) {
+                    if (entry.title) {
+                        approvedTitles.add(normalizeTitle(entry.title));
+                    }
+                    try {
+                        const data = typeof entry.sourceData === 'object' ? entry.sourceData : JSON.parse(String(entry.sourceData) || '{}');
+                        const pmid = (data as Record<string, unknown>)?.pmid as string;
+                        if (pmid) approvedPmids.add(pmid);
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+        }
+
+        // Mark each entry as new or existing
+        const entriesWithStatus = entries.map(entry => {
+            // sourceData is a JSON string from articleToCVEntry
+            let pmid: string | null = null;
+            try {
+                const parsed = typeof entry.sourceData === 'string'
+                    ? JSON.parse(entry.sourceData)
+                    : entry.sourceData;
+                pmid = parsed?.pmid || null;
+            } catch {
+                // ignore parse errors
+            }
+            const titleNormalized = normalizeTitle(entry.title);
+
+            const isDuplicate =
+                (pmid && pendingPmids.has(pmid)) ||
+                (pmid && approvedPmids.has(pmid)) ||
+                approvedTitles.has(titleNormalized);
+
+            return {
+                ...entry,
+                isNew: !isDuplicate,
+            };
+        });
+
+        const newCount = entriesWithStatus.filter(e => e.isNew).length;
+
         return NextResponse.json({
-            count: result.count,
-            entries,
+            totalFound: result.count,
+            newCount,
+            entries: entriesWithStatus,
         });
     } catch (error) {
         console.error('PubMed search error:', error);

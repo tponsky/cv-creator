@@ -186,6 +186,8 @@ export async function POST(request: NextRequest) {
                         title: entry.title,
                         description: entry.description,
                         date: entry.date,
+                        startDate: entry.startDate,
+                        endDate: entry.endDate,
                         location: entry.location,
                         url: entry.url,
                         sourceType: 'email',

@@ -97,9 +97,12 @@ export async function POST() {
                         title: entry.title,
                         description: entry.description,
                         date: entry.date,
+                        startDate: entry.startDate,
+                        endDate: entry.endDate,
                         location: entry.location,
                         url: entry.url,
                         displayOrder: (maxEntryOrder?.displayOrder ?? -1) + 1,
+                        sourceType: entry.sourceType || 'import',
                         sourceData: entry.sourceData as object | undefined,
                     },
                 });

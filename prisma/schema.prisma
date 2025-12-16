@@ -23,6 +23,7 @@ model User {
   phone         String?   // For CV header
   address       String?   // For CV header
   website       String?   // For CV header
+  bio           String?   @db.Text // AI-generated professional bio
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

@@ -151,6 +151,9 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/import/pubmed
  * Import selected publications to CV as pending entries
+ * Can accept either:
+ * - entries: Pre-fetched entries to import directly
+ * - authorName + pmids: Fetch from PubMed and filter by pmids
  */
 export async function POST(request: NextRequest) {
     const user = await getDemoUser();
@@ -158,11 +161,47 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }
 
-    const { authorName, pmids } = await request.json();
+    const { authorName, pmids, entries } = await request.json();
 
+    // If entries are provided, import them directly
+    if (entries && Array.isArray(entries) && entries.length > 0) {
+        try {
+            // Create pending entries for selected publications
+            const pendingEntries = await Promise.all(
+                entries.map((entry: { title: string; description: string; date: string | null; url: string; sourceData?: string }) =>
+                    prisma.pendingEntry.create({
+                        data: {
+                            userId: user.id,
+                            title: entry.title,
+                            description: entry.description,
+                            date: entry.date ? new Date(entry.date) : null,
+                            url: entry.url,
+                            sourceType: 'pubmed',
+                            sourceData: entry.sourceData || '{}',
+                            status: 'pending',
+                        },
+                    })
+                )
+            );
+
+            return NextResponse.json({
+                success: true,
+                message: `Added ${pendingEntries.length} publication(s) to pending review`,
+                count: pendingEntries.length,
+            });
+        } catch (error) {
+            console.error('PubMed import error:', error);
+            return NextResponse.json(
+                { error: 'Failed to import publications' },
+                { status: 500 }
+            );
+        }
+    }
+
+    // Otherwise, fetch from PubMed
     if (!authorName) {
         return NextResponse.json(
-            { error: 'authorName is required' },
+            { error: 'authorName or entries is required' },
             { status: 400 }
         );
     }

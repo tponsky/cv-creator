@@ -11,6 +11,8 @@ interface Publication {
     date: string | null;
     url: string;
     sourceType: string;
+    isNew?: boolean;
+    sourceData?: string;
 }
 
 interface CVImportResult {
@@ -49,6 +51,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     // PubMed state
     const [authorName, setAuthorName] = useState('');
     const [publications, setPublications] = useState<Publication[]>([]);
+    const [selectedPubs, setSelectedPubs] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(false);
     const [importing, setImporting] = useState(false);
     const [message, setMessage] = useState('');
@@ -179,6 +182,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         setError('');
         setMessage('');
         setPublications([]);
+        setSelectedPubs(new Set());
 
         try {
             const response = await fetch(`/api/import/pubmed?author=${encodeURIComponent(authorName)}`);
@@ -188,13 +192,22 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 throw new Error(data.error || 'Search failed');
             }
 
-            setPublications(data.entries || []);
+            // Only show new publications (filter out duplicates)
+            const newPubs = (data.entries || []).filter((e: Publication) => e.isNew !== false);
+            setPublications(newPubs);
+
+            // Pre-select all new publications
+            setSelectedPubs(new Set(newPubs.map((_: Publication, i: number) => i)));
+
             const totalFound = data.totalFound || data.count || 0;
-            const newCount = data.newCount ?? totalFound;
-            if (newCount === totalFound) {
-                setMessage(`Found ${totalFound} publications (all are new)`);
+            const newCount = newPubs.length;
+
+            if (newCount === 0) {
+                setMessage(`Found ${totalFound} publications - all already in your CV!`);
+            } else if (newCount === totalFound) {
+                setMessage(`Found ${newCount} new publications`);
             } else {
-                setMessage(`Found ${totalFound} publications, ${newCount} new to add`);
+                setMessage(`Found ${newCount} new publications (${totalFound - newCount} already in CV)`);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Search failed');
@@ -203,9 +216,29 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         }
     };
 
-    const importAllPublications = async () => {
-        if (!authorName.trim()) {
-            setError('Please enter an author name');
+    // Toggle individual publication selection
+    const toggleSelection = (index: number) => {
+        const newSelected = new Set(selectedPubs);
+        if (newSelected.has(index)) {
+            newSelected.delete(index);
+        } else {
+            newSelected.add(index);
+        }
+        setSelectedPubs(newSelected);
+    };
+
+    // Select/deselect all
+    const toggleSelectAll = () => {
+        if (selectedPubs.size === publications.length) {
+            setSelectedPubs(new Set());
+        } else {
+            setSelectedPubs(new Set(publications.map((_, i) => i)));
+        }
+    };
+
+    const importSelectedPublications = async () => {
+        if (selectedPubs.size === 0) {
+            setError('Please select at least one publication to import');
             return;
         }
 
@@ -214,10 +247,16 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         setMessage('');
 
         try {
+            // Get selected publications
+            const selectedEntries = publications.filter((_, i) => selectedPubs.has(i));
+
             const response = await fetch('/api/import/pubmed', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ authorName }),
+                body: JSON.stringify({
+                    authorName,
+                    entries: selectedEntries
+                }),
             });
             const data = await response.json();
 
@@ -225,8 +264,9 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 throw new Error(data.error || 'Import failed');
             }
 
-            setMessage(data.message);
+            setMessage(`Successfully imported ${selectedPubs.size} publication(s) to pending review`);
             setPublications([]);
+            setSelectedPubs(new Set());
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Import failed');
         } finally {
@@ -469,27 +509,51 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                         {publications.length > 0 && (
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                    <h3 className="font-medium">Found Publications</h3>
+                                    <div className="flex items-center gap-3">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedPubs.size === publications.length && publications.length > 0}
+                                                onChange={toggleSelectAll}
+                                                className="w-4 h-4 rounded border-border text-primary-500 focus:ring-primary-500"
+                                            />
+                                            <span className="text-sm font-medium">Select All</span>
+                                        </label>
+                                        <span className="text-sm text-muted-foreground">
+                                            ({selectedPubs.size} of {publications.length} selected)
+                                        </span>
+                                    </div>
                                     <button
-                                        onClick={importAllPublications}
-                                        disabled={importing}
+                                        onClick={importSelectedPublications}
+                                        disabled={importing || selectedPubs.size === 0}
                                         className="btn-primary"
                                     >
-                                        {importing ? 'Importing...' : `Import All (${publications.length})`}
+                                        {importing ? 'Importing...' : `Import Selected (${selectedPubs.size})`}
                                     </button>
                                 </div>
 
                                 <div className="max-h-96 overflow-y-auto space-y-2">
                                     {publications.map((pub, index) => (
-                                        <div
+                                        <label
                                             key={index}
-                                            className="p-3 rounded-lg bg-secondary/50 text-sm"
+                                            className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${selectedPubs.has(index)
+                                                    ? 'bg-primary-500/10 border border-primary-500/30'
+                                                    : 'bg-secondary/50 hover:bg-secondary/70'
+                                                }`}
                                         >
-                                            <p className="font-medium line-clamp-2">{pub.title}</p>
-                                            <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
-                                                {pub.description}
-                                            </p>
-                                        </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedPubs.has(index)}
+                                                onChange={() => toggleSelection(index)}
+                                                className="w-4 h-4 mt-0.5 rounded border-border text-primary-500 focus:ring-primary-500"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-medium text-sm line-clamp-2">{pub.title}</p>
+                                                <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
+                                                    {pub.description}
+                                                </p>
+                                            </div>
+                                        </label>
                                     ))}
                                 </div>
                             </div>

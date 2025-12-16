@@ -510,7 +510,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                             Forward any email to:
                         </p>
                         <code className="block mt-2 px-3 py-2 rounded bg-secondary text-lg font-mono">
-                            cv@mail.staycurrentapp.com
+                            cv@mail.staycurrentai.com
                         </code>
                         <p className="text-xs text-muted-foreground mt-3">
                             AI will extract CV-worthy content like publications, awards, and presentations.

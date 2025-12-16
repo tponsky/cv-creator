@@ -69,7 +69,7 @@ export function ExportModal() {
             {/* Modal */}
             {isOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-card rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+                    <div className="bg-neutral-900 rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-xl font-bold">Export CV</h2>
                             <button
@@ -90,8 +90,8 @@ export function ExportModal() {
                                     <label
                                         key={template.id}
                                         className={`flex items-start p-3 rounded-lg border cursor-pointer transition-colors ${selectedTemplate === template.id
-                                                ? 'border-primary-500 bg-primary-500/10'
-                                                : 'border-border hover:border-primary-500/50'
+                                            ? 'border-primary-500 bg-primary-500/10'
+                                            : 'border-border hover:border-primary-500/50'
                                             }`}
                                     >
                                         <input

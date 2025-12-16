@@ -26,6 +26,7 @@ function BioContent({ user }: { user: UserProfile }) {
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
     const [length, setLength] = useState<'short' | 'medium' | 'long'>('medium');
+    const [highlights, setHighlights] = useState('');
 
     const navUser = { name: user.name || 'User', email: user.email };
 
@@ -57,7 +58,7 @@ function BioContent({ user }: { user: UserProfile }) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ length }),
+                body: JSON.stringify({ length, highlights }),
             });
 
             const data = await res.json();
@@ -122,6 +123,21 @@ function BioContent({ user }: { user: UserProfile }) {
                     <p className="text-muted-foreground mb-4">
                         AI will analyze your CV entries to create a professional biography.
                     </p>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium mb-2">
+                            Key highlights to emphasize (optional)
+                        </label>
+                        <textarea
+                            value={highlights}
+                            onChange={(e) => setHighlights(e.target.value)}
+                            placeholder="E.g., Focus on my surgical innovations, mention my NIH funding, highlight my teaching awards..."
+                            className="input w-full h-20 resize-none text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Tell AI what to prioritize from your CV
+                        </p>
+                    </div>
 
                     <div className="flex flex-wrap items-center gap-4 mb-4">
                         <div className="flex items-center gap-2">

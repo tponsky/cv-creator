@@ -51,6 +51,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     // PubMed state
     const [authorName, setAuthorName] = useState('');
     const [publications, setPublications] = useState<Publication[]>([]);
+    const [allPublications, setAllPublications] = useState<Publication[]>([]);
+    const [showOnlyNew, setShowOnlyNew] = useState(true);
     const [selectedPubs, setSelectedPubs] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -182,6 +184,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         setError('');
         setMessage('');
         setPublications([]);
+        setAllPublications([]);
         setSelectedPubs(new Set());
 
         try {
@@ -192,15 +195,21 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 throw new Error(data.error || 'Search failed');
             }
 
-            // Only show new publications (filter out duplicates)
-            const newPubs = (data.entries || []).filter((e: Publication) => e.isNew !== false);
-            setPublications(newPubs);
+            // Store all publications
+            const allPubs = data.entries || [];
+            setAllPublications(allPubs);
 
-            // Pre-select all new publications
-            setSelectedPubs(new Set(newPubs.map((_: Publication, i: number) => i)));
+            // Filter based on showOnlyNew setting
+            const displayPubs = showOnlyNew
+                ? allPubs.filter((e: Publication) => e.isNew !== false)
+                : allPubs;
+            setPublications(displayPubs);
+
+            // Pre-select all displayed publications
+            setSelectedPubs(new Set(displayPubs.map((_: Publication, i: number) => i)));
 
             const totalFound = data.totalFound || data.count || 0;
-            const newCount = newPubs.length;
+            const newCount = allPubs.filter((e: Publication) => e.isNew !== false).length;
 
             if (newCount === 0) {
                 setMessage(`Found ${totalFound} publications - all already in your CV!`);
@@ -215,6 +224,18 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setLoading(false);
         }
     };
+
+    // Effect to filter publications when toggle changes
+    useEffect(() => {
+        if (allPublications.length > 0) {
+            const displayPubs = showOnlyNew
+                ? allPublications.filter((e: Publication) => e.isNew !== false)
+                : allPublications;
+            setPublications(displayPubs);
+            // Reset selection to all displayed publications
+            setSelectedPubs(new Set(displayPubs.map((_: Publication, i: number) => i)));
+        }
+    }, [showOnlyNew, allPublications]);
 
     // Toggle individual publication selection
     const toggleSelection = (index: number) => {
@@ -494,6 +515,23 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                             </p>
                         </div>
 
+                        {allPublications.length > 0 && (
+                            <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={showOnlyNew}
+                                        onChange={(e) => setShowOnlyNew(e.target.checked)}
+                                        className="w-4 h-4 rounded border-border text-primary-500 focus:ring-primary-500"
+                                    />
+                                    <span className="text-sm">Show only new (not already in CV)</span>
+                                </label>
+                                <span className="text-xs text-muted-foreground">
+                                    ({allPublications.filter(p => p.isNew !== false).length} new / {allPublications.length} total)
+                                </span>
+                            </div>
+                        )}
+
                         {error && (
                             <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
                                 {error}
@@ -537,8 +575,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                         <label
                                             key={index}
                                             className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${selectedPubs.has(index)
-                                                    ? 'bg-primary-500/10 border border-primary-500/30'
-                                                    : 'bg-secondary/50 hover:bg-secondary/70'
+                                                ? 'bg-primary-500/10 border border-primary-500/30'
+                                                : 'bg-secondary/50 hover:bg-secondary/70'
                                                 }`}
                                         >
                                             <input

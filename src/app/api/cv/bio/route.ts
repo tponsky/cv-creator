@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { length = 'medium' } = await request.json();
+    const { length = 'medium', highlights = '' } = await request.json();
 
     // Fetch full user with CV data
     const user = await prisma.user.findUnique({
@@ -83,10 +83,14 @@ export async function POST(request: NextRequest) {
         long: 'Write a comprehensive professional bio of about 200-250 words.',
     };
 
+    const highlightsInstruction = highlights
+        ? `\nIMPORTANT: The user wants you to specifically emphasize the following in their bio: ${highlights}`
+        : '';
+
     const systemPrompt = `You are a professional bio writer for academics and medical professionals.
 Create a compelling professional biography based on the CV information provided.
 Write in third person. Focus on key accomplishments, expertise, and career highlights.
-${lengthInstructions[length as keyof typeof lengthInstructions] || lengthInstructions.medium}
+${lengthInstructions[length as keyof typeof lengthInstructions] || lengthInstructions.medium}${highlightsInstruction}
 Do not make up any information - only use what's provided in the CV.`;
 
     try {

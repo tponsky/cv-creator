@@ -40,7 +40,7 @@ export function Navbar({ user }: NavbarProps) {
 
     const navLinks = [
         { href: '/cv', label: 'My CV' },
-        { href: '/settings', label: 'Settings' },
+        { href: '/settings', label: 'CV Builder / Automatic Updater' },
     ];
 
     return (

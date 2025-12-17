@@ -103,12 +103,14 @@ export async function GET(request: NextRequest) {
 
         // Group by normalized title + date + category
         // Same title in different categories are NOT duplicates (e.g., membership vs leadership)
+        // Same title on different DAYS are NOT duplicates (e.g., recurring lectures)
         const titleGroups = new Map<string, typeof allEntries>();
 
         for (const entry of allEntries) {
-            // Create composite key: normalized title + date + category
+            // Create composite key: normalized title + FULL date + category
             const normalizedT = normalizeTitle(entry.title);
-            const dateKey = entry.date ? entry.date.toISOString().slice(0, 7) : 'nodate';
+            // Use full date (YYYY-MM-DD) not just year-month
+            const dateKey = entry.date ? entry.date.toISOString().slice(0, 10) : 'nodate';
             const categoryKey = entry.categoryName.toLowerCase().replace(/[^\w]/g, '');
             const groupKey = `${normalizedT}|${dateKey}|${categoryKey}`;
 

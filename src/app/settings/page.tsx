@@ -90,6 +90,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [dedupeStats, setDedupeStats] = useState<{ total: number; duplicates: number; after: number } | null>(null);
     const [dedupeMessage, setDedupeMessage] = useState('');
     const [dedupeError, setDedupeError] = useState('');
+    const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
 
     const navUser = { name: profile.name || 'User', email: profile.email };
 
@@ -205,6 +206,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         setDedupeMessage('');
         setDuplicateGroups([]);
         setDedupeStats(null);
+        setSelectedToRemove(new Set());
 
         try {
             const response = await fetch('/api/cv/deduplicate');
@@ -214,17 +216,29 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 throw new Error(data.error || 'Scan failed');
             }
 
-            setDuplicateGroups(data.duplicateGroups || []);
+            const groups = data.duplicateGroups || [];
+            setDuplicateGroups(groups);
             setDedupeStats({
                 total: data.totalEntries,
                 duplicates: data.duplicateCount,
                 after: data.afterCleanup,
             });
 
+            // Pre-select suggested removals (user can uncheck any)
+            const suggestedRemovals = new Set<string>();
+            for (const group of groups) {
+                for (const entry of group.entries) {
+                    if (entry.id !== group.keepId) {
+                        suggestedRemovals.add(entry.id);
+                    }
+                }
+            }
+            setSelectedToRemove(suggestedRemovals);
+
             if (data.duplicateCount === 0) {
                 setDedupeMessage('No duplicates found! Your CV is clean.');
             } else {
-                setDedupeMessage(`Found ${data.duplicateCount} duplicate entries in ${data.duplicateGroups?.length || 0} groups.`);
+                setDedupeMessage(`Found ${data.duplicateCount} potential duplicates. Review and uncheck any you want to keep.`);
             }
         } catch (err) {
             setDedupeError(err instanceof Error ? err.message : 'Scan failed');
@@ -234,22 +248,12 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     };
 
     const removeDuplicates = async () => {
-        if (duplicateGroups.length === 0) return;
-
-        // Collect IDs to delete (all except the keepId in each group)
-        const idsToDelete: string[] = [];
-        for (const group of duplicateGroups) {
-            for (const entry of group.entries) {
-                if (entry.id !== group.keepId) {
-                    idsToDelete.push(entry.id);
-                }
-            }
-        }
-
-        if (idsToDelete.length === 0) {
-            setDedupeError('No duplicates to remove');
+        if (selectedToRemove.size === 0) {
+            setDedupeError('No entries selected for removal. Check the boxes next to entries you want to remove.');
             return;
         }
+
+        const idsToDelete = Array.from(selectedToRemove);
 
         setDedupeRemoving(true);
         setDedupeError('');
@@ -269,6 +273,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setDedupeMessage(`Successfully removed ${data.deletedCount} duplicate entries!`);
             setDuplicateGroups([]);
             setDedupeStats(null);
+            setSelectedToRemove(new Set());
         } catch (err) {
             setDedupeError(err instanceof Error ? err.message : 'Removal failed');
         } finally {
@@ -741,10 +746,10 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                         {duplicateGroups.length > 0 && (
                             <button
                                 onClick={removeDuplicates}
-                                disabled={dedupeRemoving}
+                                disabled={dedupeRemoving || selectedToRemove.size === 0}
                                 className="btn-primary"
                             >
-                                {dedupeRemoving ? 'Removing...' : `Remove ${dedupeStats?.duplicates || 0} Duplicates`}
+                                {dedupeRemoving ? 'Removing...' : `Remove ${selectedToRemove.size} Selected`}
                             </button>
                         )}
                     </div>
@@ -774,32 +779,61 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 <div key={gi} className="p-3 rounded-lg bg-secondary/50">
                                     <p className="font-medium text-sm mb-2 line-clamp-1">{group.entries[0]?.title}</p>
                                     <div className="space-y-1">
-                                        {group.entries.map((entry) => (
-                                            <div
-                                                key={entry.id}
-                                                className={`text-xs p-2 rounded ${entry.id === group.keepId ? 'bg-success/10 border border-success/30' : 'bg-destructive/10 border border-destructive/30'}`}
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium">
-                                                        {entry.id === group.keepId ? '✓ Keep' : '✗ Remove'}
-                                                    </span>
-                                                    <span className="text-muted-foreground">|</span>
-                                                    <span>{entry.categoryName}</span>
-                                                    {entry.date && (
-                                                        <span className="text-muted-foreground">
-                                                            {new Date(entry.date).toLocaleDateString()}
-                                                        </span>
-                                                    )}
-                                                    {entry.hasPMID && <span className="text-primary-400">[PMID]</span>}
-                                                    {entry.hasDOI && <span className="text-primary-400">[DOI]</span>}
-                                                </div>
-                                                {entry.description && (
-                                                    <p className="text-muted-foreground mt-1 line-clamp-1">
-                                                        {entry.description.slice(0, 100)}...
-                                                    </p>
-                                                )}
-                                            </div>
-                                        ))}
+                                        {group.entries.map((entry) => {
+                                            const isSelected = selectedToRemove.has(entry.id);
+                                            const isKeeper = entry.id === group.keepId;
+                                            return (
+                                                <label
+                                                    key={entry.id}
+                                                    className={`text-xs p-3 rounded cursor-pointer block ${isKeeper
+                                                        ? 'bg-success/10 border border-success/30'
+                                                        : isSelected
+                                                            ? 'bg-destructive/10 border border-destructive/30'
+                                                            : 'bg-secondary/50 border border-border'
+                                                        }`}
+                                                >
+                                                    <div className="flex items-start gap-2">
+                                                        {!isKeeper && (
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                onChange={() => {
+                                                                    const newSet = new Set(selectedToRemove);
+                                                                    if (isSelected) {
+                                                                        newSet.delete(entry.id);
+                                                                    } else {
+                                                                        newSet.add(entry.id);
+                                                                    }
+                                                                    setSelectedToRemove(newSet);
+                                                                }}
+                                                                className="mt-0.5 w-4 h-4 rounded"
+                                                            />
+                                                        )}
+                                                        <div className="flex-1">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className={`font-medium ${isKeeper ? 'text-success' : isSelected ? 'text-destructive' : ''}`}>
+                                                                    {isKeeper ? '✓ Keep' : isSelected ? '✗ Will Remove' : '○ Keeping'}
+                                                                </span>
+                                                                <span className="text-muted-foreground">|</span>
+                                                                <span>{entry.categoryName}</span>
+                                                                {entry.date && (
+                                                                    <span className="text-muted-foreground font-medium">
+                                                                        {new Date(entry.date).toLocaleDateString()}
+                                                                    </span>
+                                                                )}
+                                                                {entry.hasPMID && <span className="text-primary-400">[PMID]</span>}
+                                                                {entry.hasDOI && <span className="text-primary-400">[DOI]</span>}
+                                                            </div>
+                                                            {entry.description && (
+                                                                <p className="text-muted-foreground mt-1 text-xs">
+                                                                    {entry.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             ))}

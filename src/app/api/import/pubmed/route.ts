@@ -3,13 +3,23 @@ import prisma from '@/lib/prisma';
 import { searchAndFetchArticles, articleToCVEntry } from '@/lib/pubmed-api';
 import { getUserFromRequest } from '@/lib/server-auth';
 
-// Normalize title for comparison (lowercase, remove punctuation, trim)
+// Normalize title for comparison - aggressive normalization to catch variants
 function normalizeTitle(title: string): string {
     return title
         .toLowerCase()
-        .replace(/[^\w\s]/g, '') // Remove punctuation
+        .replace(/^(the|a|an)\s+/i, '') // Remove leading articles
+        .replace(/[^\w\s]/g, '') // Remove ALL non-alphanumeric chars
         .replace(/\s+/g, ' ')    // Normalize whitespace
-        .trim();
+        .trim()
+        .slice(0, 150); // Truncate for comparison (handles partial titles)
+}
+
+// Extract DOI from a description or sourceData string
+function extractDOI(text: string): string | null {
+    if (!text) return null;
+    // Match DOI patterns: 10.xxxx/xxxxx
+    const match = text.match(/10\.\d{4,}\/[^\s"'<>]+/i);
+    return match ? match[0].toLowerCase() : null;
 }
 
 /**
@@ -61,7 +71,7 @@ export async function GET(request: NextRequest) {
                 categories: {
                     include: {
                         entries: {
-                            select: { title: true, sourceData: true }
+                            select: { title: true, description: true, sourceData: true }
                         }
                     }
                 }
@@ -82,8 +92,9 @@ export async function GET(request: NextRequest) {
                 .filter(Boolean)
         );
 
-        // Collect PMIDs and titles from approved entries
+        // Collect PMIDs, DOIs, and titles from approved entries
         const approvedPmids = new Set<string>();
+        const approvedDOIs = new Set<string>();
         const approvedTitles = new Set<string>();
 
         if (cv?.categories) {
@@ -92,10 +103,16 @@ export async function GET(request: NextRequest) {
                     if (entry.title) {
                         approvedTitles.add(normalizeTitle(entry.title));
                     }
+                    // Extract DOI from description (common for manual entries)
+                    const descriptionDOI = extractDOI(entry.description || '');
+                    if (descriptionDOI) approvedDOIs.add(descriptionDOI);
+
                     try {
                         const data = typeof entry.sourceData === 'object' ? entry.sourceData : JSON.parse(String(entry.sourceData) || '{}');
                         const pmid = (data as Record<string, unknown>)?.pmid as string;
+                        const doi = (data as Record<string, unknown>)?.doi as string;
                         if (pmid) approvedPmids.add(pmid);
+                        if (doi) approvedDOIs.add(doi.toLowerCase());
                     } catch {
                         // ignore
                     }
@@ -107,11 +124,13 @@ export async function GET(request: NextRequest) {
         const entriesWithStatus = entries.map(entry => {
             // sourceData is a JSON string from articleToCVEntry
             let pmid: string | null = null;
+            let doi: string | null = null;
             try {
                 const parsed = typeof entry.sourceData === 'string'
                     ? JSON.parse(entry.sourceData)
                     : entry.sourceData;
                 pmid = parsed?.pmid || null;
+                doi = parsed?.doi?.toLowerCase() || null;
             } catch {
                 // ignore parse errors
             }
@@ -120,6 +139,7 @@ export async function GET(request: NextRequest) {
             const isDuplicate =
                 (pmid && pendingPmids.has(pmid)) ||
                 (pmid && approvedPmids.has(pmid)) ||
+                (doi && approvedDOIs.has(doi)) ||
                 approvedTitles.has(titleNormalized);
 
             return {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { searchAndFetchArticles, articleToCVEntry } from '@/lib/pubmed-api';
+import { getUserFromRequest } from '@/lib/server-auth';
 
 // Normalize title for comparison (lowercase, remove punctuation, trim)
 function normalizeTitle(title: string): string {
@@ -9,11 +10,6 @@ function normalizeTitle(title: string): string {
         .replace(/[^\w\s]/g, '') // Remove punctuation
         .replace(/\s+/g, ' ')    // Normalize whitespace
         .trim();
-}
-
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
 }
 
 /**
@@ -33,7 +29,7 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        const user = await getDemoUser();
+        const user = await getUserFromRequest(request);
 
         const result = await searchAndFetchArticles(authorName, 200);
 
@@ -156,12 +152,13 @@ export async function GET(request: NextRequest) {
  * - authorName + pmids: Fetch from PubMed and filter by pmids
  */
 export async function POST(request: NextRequest) {
-    const user = await getDemoUser();
+    const user = await getUserFromRequest(request);
     if (!user) {
-        return NextResponse.json({ error: 'No user found' }, { status: 404 });
+        return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    const { authorName, pmids, entries } = await request.json();
+    const body = await request.json();
+    const { authorName, pmids, entries } = body;
 
     // If entries are provided, import them directly
     if (entries && Array.isArray(entries) && entries.length > 0) {

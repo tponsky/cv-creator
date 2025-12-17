@@ -772,7 +772,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 <div key={gi} className="p-3 rounded-lg bg-secondary/50">
                                     <p className="font-medium text-sm mb-2 line-clamp-1">{group.entries[0]?.title}</p>
                                     <div className="space-y-1">
-                                        {group.entries.map((entry, ei) => (
+                                        {group.entries.map((entry) => (
                                             <div
                                                 key={entry.id}
                                                 className={`text-xs p-2 rounded ${entry.id === group.keepId ? 'bg-success/10 border border-success/30' : 'bg-destructive/10 border border-destructive/30'}`}

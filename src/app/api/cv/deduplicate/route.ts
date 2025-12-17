@@ -26,6 +26,8 @@ interface DuplicateGroup {
         id: string;
         title: string;
         description: string | null;
+        date: string | null;
+        location: string | null;
         categoryName: string;
         sourceType: string | null;
         hasPMID: boolean;
@@ -57,6 +59,8 @@ export async function GET(request: NextRequest) {
                                 id: true,
                                 title: true,
                                 description: true,
+                                date: true,
+                                location: true,
                                 sourceType: true,
                                 sourceData: true,
                                 createdAt: true,
@@ -80,6 +84,8 @@ export async function GET(request: NextRequest) {
             id: string;
             title: string;
             description: string | null;
+            date: Date | null;
+            location: string | null;
             categoryName: string;
             sourceType: string | null;
             sourceData: unknown;
@@ -95,15 +101,19 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Group by normalized title
+        // Group by normalized title + date (same title on different dates are NOT duplicates)
         const titleGroups = new Map<string, typeof allEntries>();
 
         for (const entry of allEntries) {
-            const normalized = normalizeTitle(entry.title);
-            if (!titleGroups.has(normalized)) {
-                titleGroups.set(normalized, []);
+            // Create composite key: normalized title + date (year-month if available)
+            const normalizedT = normalizeTitle(entry.title);
+            const dateKey = entry.date ? entry.date.toISOString().slice(0, 7) : 'nodate';
+            const groupKey = `${normalizedT}|${dateKey}`;
+
+            if (!titleGroups.has(groupKey)) {
+                titleGroups.set(groupKey, []);
             }
-            titleGroups.get(normalized)!.push(entry);
+            titleGroups.get(groupKey)!.push(entry);
         }
 
         // Build duplicate groups (only groups with 2+ entries)
@@ -153,6 +163,8 @@ export async function GET(request: NextRequest) {
                         id: se.entry.id,
                         title: se.entry.title,
                         description: se.entry.description,
+                        date: se.entry.date?.toISOString() || null,
+                        location: se.entry.location,
                         categoryName: se.entry.categoryName,
                         sourceType: se.entry.sourceType,
                         hasPMID: se.hasPMID,

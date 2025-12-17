@@ -67,6 +67,28 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [dragActive, setDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Deduplication state
+    interface DuplicateEntry {
+        id: string;
+        title: string;
+        description: string | null;
+        categoryName: string;
+        sourceType: string | null;
+        hasPMID: boolean;
+        hasDOI: boolean;
+    }
+    interface DuplicateGroup {
+        normalizedTitle: string;
+        entries: DuplicateEntry[];
+        keepId: string;
+    }
+    const [dedupeScanning, setDedupeScanning] = useState(false);
+    const [dedupeRemoving, setDedupeRemoving] = useState(false);
+    const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
+    const [dedupeStats, setDedupeStats] = useState<{ total: number; duplicates: number; after: number } | null>(null);
+    const [dedupeMessage, setDedupeMessage] = useState('');
+    const [dedupeError, setDedupeError] = useState('');
+
     const navUser = { name: profile.name || 'User', email: profile.email };
 
     // Save profile handler
@@ -171,6 +193,84 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setCvError(err instanceof Error ? err.message : 'Upload failed');
         } finally {
             setCvUploading(false);
+        }
+    };
+
+    // Deduplication handlers
+    const scanForDuplicates = async () => {
+        setDedupeScanning(true);
+        setDedupeError('');
+        setDedupeMessage('');
+        setDuplicateGroups([]);
+        setDedupeStats(null);
+
+        try {
+            const response = await fetch('/api/cv/deduplicate');
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Scan failed');
+            }
+
+            setDuplicateGroups(data.duplicateGroups || []);
+            setDedupeStats({
+                total: data.totalEntries,
+                duplicates: data.duplicateCount,
+                after: data.afterCleanup,
+            });
+
+            if (data.duplicateCount === 0) {
+                setDedupeMessage('No duplicates found! Your CV is clean.');
+            } else {
+                setDedupeMessage(`Found ${data.duplicateCount} duplicate entries in ${data.duplicateGroups?.length || 0} groups.`);
+            }
+        } catch (err) {
+            setDedupeError(err instanceof Error ? err.message : 'Scan failed');
+        } finally {
+            setDedupeScanning(false);
+        }
+    };
+
+    const removeDuplicates = async () => {
+        if (duplicateGroups.length === 0) return;
+
+        // Collect IDs to delete (all except the keepId in each group)
+        const idsToDelete: string[] = [];
+        for (const group of duplicateGroups) {
+            for (const entry of group.entries) {
+                if (entry.id !== group.keepId) {
+                    idsToDelete.push(entry.id);
+                }
+            }
+        }
+
+        if (idsToDelete.length === 0) {
+            setDedupeError('No duplicates to remove');
+            return;
+        }
+
+        setDedupeRemoving(true);
+        setDedupeError('');
+
+        try {
+            const response = await fetch('/api/cv/deduplicate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entriesToDelete: idsToDelete }),
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Removal failed');
+            }
+
+            setDedupeMessage(`Successfully removed ${data.deletedCount} duplicate entries!`);
+            setDuplicateGroups([]);
+            setDedupeStats(null);
+        } catch (err) {
+            setDedupeError(err instanceof Error ? err.message : 'Removal failed');
+        } finally {
+            setDedupeRemoving(false);
         }
     };
 
@@ -619,6 +719,82 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                             Check the Review Queue to approve extracted entries.
                         </p>
                     </div>
+                </div>
+
+                {/* Clean Up Duplicates Section */}
+                <div className="card mb-8">
+                    <h2 className="text-xl font-semibold mb-4">Clean Up Duplicates</h2>
+                    <p className="text-muted-foreground mb-4">
+                        Scan your CV for duplicate entries (same publication imported from different sources).
+                    </p>
+
+                    <div className="flex gap-3 mb-4">
+                        <button
+                            onClick={scanForDuplicates}
+                            disabled={dedupeScanning}
+                            className="btn-secondary"
+                        >
+                            {dedupeScanning ? 'Scanning...' : 'Scan for Duplicates'}
+                        </button>
+                        {duplicateGroups.length > 0 && (
+                            <button
+                                onClick={removeDuplicates}
+                                disabled={dedupeRemoving}
+                                className="btn-primary"
+                            >
+                                {dedupeRemoving ? 'Removing...' : `Remove ${dedupeStats?.duplicates || 0} Duplicates`}
+                            </button>
+                        )}
+                    </div>
+
+                    {dedupeError && (
+                        <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm mb-4">
+                            {dedupeError}
+                        </div>
+                    )}
+
+                    {dedupeMessage && (
+                        <div className="p-3 rounded-lg bg-success/10 text-success text-sm mb-4">
+                            {dedupeMessage}
+                        </div>
+                    )}
+
+                    {dedupeStats && (
+                        <div className="text-sm text-muted-foreground mb-4">
+                            <p>Current entries: <span className="font-medium text-foreground">{dedupeStats.total}</span></p>
+                            <p>After cleanup: <span className="font-medium text-foreground">{dedupeStats.after}</span></p>
+                        </div>
+                    )}
+
+                    {duplicateGroups.length > 0 && (
+                        <div className="max-h-96 overflow-y-auto space-y-3">
+                            {duplicateGroups.slice(0, 10).map((group, gi) => (
+                                <div key={gi} className="p-3 rounded-lg bg-secondary/50">
+                                    <p className="font-medium text-sm mb-2 line-clamp-1">{group.entries[0]?.title}</p>
+                                    <div className="space-y-1">
+                                        {group.entries.map((entry, ei) => (
+                                            <div
+                                                key={entry.id}
+                                                className={`text-xs p-2 rounded ${entry.id === group.keepId ? 'bg-success/10 border border-success/30' : 'bg-destructive/10 border border-destructive/30'}`}
+                                            >
+                                                <span className="font-medium">
+                                                    {entry.id === group.keepId ? '✓ Keep: ' : '✗ Remove: '}
+                                                </span>
+                                                {entry.categoryName}
+                                                {entry.hasPMID && <span className="ml-2 text-primary-400">[PMID]</span>}
+                                                {entry.hasDOI && <span className="ml-1 text-primary-400">[DOI]</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                            {duplicateGroups.length > 10 && (
+                                <p className="text-sm text-muted-foreground text-center">
+                                    ... and {duplicateGroups.length - 10} more groups
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Review Queue Link */}

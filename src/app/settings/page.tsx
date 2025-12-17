@@ -72,6 +72,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         id: string;
         title: string;
         description: string | null;
+        date: string | null;
+        location: string | null;
         categoryName: string;
         sourceType: string | null;
         hasPMID: boolean;
@@ -777,12 +779,25 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                                 key={entry.id}
                                                 className={`text-xs p-2 rounded ${entry.id === group.keepId ? 'bg-success/10 border border-success/30' : 'bg-destructive/10 border border-destructive/30'}`}
                                             >
-                                                <span className="font-medium">
-                                                    {entry.id === group.keepId ? '✓ Keep: ' : '✗ Remove: '}
-                                                </span>
-                                                {entry.categoryName}
-                                                {entry.hasPMID && <span className="ml-2 text-primary-400">[PMID]</span>}
-                                                {entry.hasDOI && <span className="ml-1 text-primary-400">[DOI]</span>}
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium">
+                                                        {entry.id === group.keepId ? '✓ Keep' : '✗ Remove'}
+                                                    </span>
+                                                    <span className="text-muted-foreground">|</span>
+                                                    <span>{entry.categoryName}</span>
+                                                    {entry.date && (
+                                                        <span className="text-muted-foreground">
+                                                            {new Date(entry.date).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                    {entry.hasPMID && <span className="text-primary-400">[PMID]</span>}
+                                                    {entry.hasDOI && <span className="text-primary-400">[DOI]</span>}
+                                                </div>
+                                                {entry.description && (
+                                                    <p className="text-muted-foreground mt-1 line-clamp-1">
+                                                        {entry.description.slice(0, 100)}...
+                                                    </p>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

@@ -692,7 +692,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     {wizardStep === 2 && (
                         <div className="space-y-6">
                             <div className="text-center mb-8">
-                                <h2 className="text-2xl font-bold">Step 1: Upload Your CV</h2>
+                                <h2 className="text-2xl font-bold">Step 2: Upload Your CV</h2>
                                 <p className="text-muted-foreground">If you have an existing CV (PDF or Word), upload it now so we can import your work.</p>
                             </div>
 

@@ -124,16 +124,29 @@ export async function parseCV(text: string): Promise<ParsedCV> {
     ];
 
     let sections: string[] = [text];
-    for (const pattern of sectionPatterns) {
-        const newSections: string[] = [];
-        for (const section of sections) {
-            const parts = section.split(pattern);
-            newSections.push(...parts);
+    // sections is already declared above
+    try {
+        for (const pattern of sectionPatterns) {
+            const newSections: string[] = [];
+            for (const section of sections) {
+                // Limit section length for regex to prevent potential catastrophic backtracking or size limits
+                if (section.length > 500000) {
+                    console.warn('Section too large for regex split, keeping as is');
+                    newSections.push(section);
+                    continue;
+                }
+                const parts = section.split(pattern);
+                newSections.push(...parts);
+            }
+            if (newSections.length > 1) {
+                sections = newSections;
+                break;
+            }
         }
-        if (newSections.length > 1) {
-            sections = newSections;
-            break;
-        }
+    } catch (e) {
+        console.error('Error splitting CV sections:', e);
+        // Fallback: treat as single section if split fails
+        sections = [text];
     }
 
     // Combine small sections, split large ones

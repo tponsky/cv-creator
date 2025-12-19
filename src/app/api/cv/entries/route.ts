@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
                 where: categoryId ? { id: categoryId } : undefined,
                 include: {
                     entries: {
-                        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+                        orderBy: [{ date: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
                     },
                 },
             },

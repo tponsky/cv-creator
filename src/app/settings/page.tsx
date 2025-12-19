@@ -92,6 +92,31 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [dedupeError, setDedupeError] = useState('');
     const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
 
+    // Missing dates state
+    interface MissingDateEntry {
+        id: string;
+        title: string;
+        description: string | null;
+        categoryId: string;
+        categoryName: string;
+    }
+    const [missingDatesEntries, setMissingDatesEntries] = useState<MissingDateEntry[]>([]);
+    const [missingDatesLoading, setMissingDatesLoading] = useState(false);
+    const [dateEdits, setDateEdits] = useState<Record<string, string>>({});
+
+    // PMID enrichment state
+    interface PmidEntry {
+        id: string;
+        title: string;
+        description: string | null;
+        categoryName: string;
+        hasPMID: boolean;
+    }
+    const [pmidEntries, setPmidEntries] = useState<PmidEntry[]>([]);
+    const [pmidStats, setPmidStats] = useState<{ total: number; withPmid: number; withoutPmid: number } | null>(null);
+    const [pmidLoading, setPmidLoading] = useState(false);
+    const [pmidEnrichMessage, setPmidEnrichMessage] = useState('');
+
     const navUser = { name: profile.name || 'User', email: profile.email };
 
     // Save profile handler
@@ -278,6 +303,68 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setDedupeError(err instanceof Error ? err.message : 'Removal failed');
         } finally {
             setDedupeRemoving(false);
+        }
+    };
+
+    // Missing dates handlers
+    const fetchMissingDates = async () => {
+        setMissingDatesLoading(true);
+        try {
+            const res = await fetch('/api/cv/missing-dates');
+            const data = await res.json();
+            if (res.ok) {
+                setMissingDatesEntries(data.entries || []);
+            }
+        } catch (err) {
+            console.error('Failed to fetch missing dates:', err);
+        } finally {
+            setMissingDatesLoading(false);
+        }
+    };
+
+    const updateEntryDate = async (entryId: string) => {
+        const dateValue = dateEdits[entryId];
+        if (!dateValue) return;
+
+        try {
+            const res = await fetch('/api/cv/missing-dates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entryId, date: dateValue }),
+            });
+            if (res.ok) {
+                // Remove from list after successful update
+                setMissingDatesEntries(prev => prev.filter(e => e.id !== entryId));
+                setDateEdits(prev => {
+                    const next = { ...prev };
+                    delete next[entryId];
+                    return next;
+                });
+            }
+        } catch (err) {
+            console.error('Failed to update date:', err);
+        }
+    };
+
+    // PMID enrichment handlers
+    const fetchPmidEntries = async () => {
+        setPmidLoading(true);
+        setPmidEnrichMessage('');
+        try {
+            const res = await fetch('/api/cv/enrich-pmid');
+            const data = await res.json();
+            if (res.ok) {
+                setPmidEntries(data.entries || []);
+                setPmidStats({
+                    total: data.total,
+                    withPmid: data.withPmid,
+                    withoutPmid: data.withoutPmid,
+                });
+            }
+        } catch (err) {
+            console.error('Failed to fetch PMID entries:', err);
+        } finally {
+            setPmidLoading(false);
         }
     };
 
@@ -837,6 +924,103 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Entries Missing Dates Section */}
+                <div className="card mb-8">
+                    <h2 className="text-xl font-semibold mb-4">Entries Missing Dates</h2>
+                    <p className="text-muted-foreground mb-4">
+                        Some entries don&apos;t have dates. Add dates to keep your CV properly organized.
+                    </p>
+
+                    <button
+                        onClick={fetchMissingDates}
+                        disabled={missingDatesLoading}
+                        className="btn-secondary mb-4"
+                    >
+                        {missingDatesLoading ? 'Loading...' : 'Find Entries Without Dates'}
+                    </button>
+
+                    {missingDatesEntries.length > 0 && (
+                        <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                            <p className="text-sm text-muted-foreground">
+                                Found {missingDatesEntries.length} entries without dates
+                            </p>
+                            {missingDatesEntries.map(entry => (
+                                <div key={entry.id} className="p-3 rounded-lg bg-secondary/50 space-y-2">
+                                    <p className="font-medium text-sm">{entry.title}</p>
+                                    <p className="text-xs text-muted-foreground">{entry.categoryName}</p>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="date"
+                                            value={dateEdits[entry.id] || ''}
+                                            onChange={(e) => setDateEdits(prev => ({
+                                                ...prev,
+                                                [entry.id]: e.target.value
+                                            }))}
+                                            className="input text-sm px-2 py-1"
+                                        />
+                                        <button
+                                            onClick={() => updateEntryDate(entry.id)}
+                                            disabled={!dateEdits[entry.id]}
+                                            className="btn-primary text-sm px-3 py-1"
+                                        >
+                                            Save
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* PMID Enrichment Section */}
+                <div className="card mb-8">
+                    <h2 className="text-xl font-semibold mb-4">Add PMIDs to Publications</h2>
+                    <p className="text-muted-foreground mb-4">
+                        Adding PubMed IDs to publications helps prevent duplicates when importing from PubMed.
+                    </p>
+
+                    <button
+                        onClick={fetchPmidEntries}
+                        disabled={pmidLoading}
+                        className="btn-secondary mb-4"
+                    >
+                        {pmidLoading ? 'Scanning...' : 'Scan Publications'}
+                    </button>
+
+                    {pmidStats && (
+                        <div className="text-sm text-muted-foreground mb-4">
+                            <p>Total publications: <span className="font-medium text-foreground">{pmidStats.total}</span></p>
+                            <p>With PMID: <span className="font-medium text-success">{pmidStats.withPmid}</span></p>
+                            <p>Without PMID: <span className="font-medium text-warning">{pmidStats.withoutPmid}</span></p>
+                        </div>
+                    )}
+
+                    {pmidEnrichMessage && (
+                        <div className="p-3 rounded-lg bg-success/10 text-success text-sm mb-4">
+                            {pmidEnrichMessage}
+                        </div>
+                    )}
+
+                    {pmidEntries.length > 0 && (
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                            <p className="text-sm text-muted-foreground mb-2">
+                                These publications don&apos;t have PMIDs yet:
+                            </p>
+                            {pmidEntries.slice(0, 20).map(entry => (
+                                <div key={entry.id} className="p-3 rounded-lg bg-secondary/50">
+                                    <p className="font-medium text-sm line-clamp-2">{entry.title}</p>
+                                    <p className="text-xs text-muted-foreground mt-1">{entry.categoryName}</p>
+                                </div>
+                            ))}
+                            {pmidEntries.length > 20 && (
+                                <p className="text-sm text-muted-foreground text-center">
+                                    ...and {pmidEntries.length - 20} more
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>

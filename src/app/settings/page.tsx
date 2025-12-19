@@ -114,20 +114,10 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         categoryName: string;
         hasPMID: boolean;
     }
-    interface PmidSearchResult {
-        pmid: string;
-        title: string;
-        doi: string | null;
-        journal: string;
-        pubDate: string;
-        authors: string;
-    }
     const [pmidEntries, setPmidEntries] = useState<PmidEntry[]>([]);
     const [pmidStats, setPmidStats] = useState<{ total: number; withPmid: number; withoutPmid: number } | null>(null);
     const [pmidLoading, setPmidLoading] = useState(false);
     const [pmidEnrichMessage, setPmidEnrichMessage] = useState('');
-    const [pmidSearching, setPmidSearching] = useState<Record<string, boolean>>({});
-    const [pmidSearchResults, setPmidSearchResults] = useState<Record<string, PmidSearchResult[]>>({});
     const [selectedPmidEntries, setSelectedPmidEntries] = useState<Set<string>>(new Set());
     const [batchEnriching, setBatchEnriching] = useState(false);
 
@@ -393,58 +383,6 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             console.error('Failed to fetch PMID entries:', err);
         } finally {
             setPmidLoading(false);
-        }
-    };
-
-    const searchPmidForEntry = async (entryId: string, title: string) => {
-        setPmidSearching(prev => ({ ...prev, [entryId]: true }));
-        try {
-            const res = await fetch('/api/cv/enrich-pmid', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title }),
-            });
-            const data = await res.json();
-            if (res.ok && data.results) {
-                setPmidSearchResults(prev => ({ ...prev, [entryId]: data.results }));
-            }
-        } catch (err) {
-            console.error('PMID search failed:', err);
-        } finally {
-            setPmidSearching(prev => ({ ...prev, [entryId]: false }));
-        }
-    };
-
-    const applyPmidToEntry = async (entryId: string, pmid: string, doi: string | null) => {
-        try {
-            const res = await fetch('/api/cv/enrich-pmid', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ entryId, pmid, doi }),
-            });
-            if (res.ok) {
-                // Remove from list and clear search results
-                setPmidEntries(prev => prev.filter(e => e.id !== entryId));
-                setPmidSearchResults(prev => {
-                    const next = { ...prev };
-                    delete next[entryId];
-                    return next;
-                });
-                setSelectedPmidEntries(prev => {
-                    const next = new Set(prev);
-                    next.delete(entryId);
-                    return next;
-                });
-                if (pmidStats) {
-                    setPmidStats({
-                        ...pmidStats,
-                        withPmid: pmidStats.withPmid + 1,
-                        withoutPmid: pmidStats.withoutPmid - 1,
-                    });
-                }
-            }
-        } catch (err) {
-            console.error('Apply PMID failed:', err);
         }
     };
 

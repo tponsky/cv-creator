@@ -65,6 +65,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [cvError, setCvError] = useState('');
     const [cvResult, setCvResult] = useState<CVImportResult | null>(null);
     const [dragActive, setDragActive] = useState(false);
+    const [cvUploadExpanded, setCvUploadExpanded] = useState(false);
+    const [hasExistingEntries, setHasExistingEntries] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Deduplication state
@@ -126,6 +128,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [pmidEnrichMessage, setPmidEnrichMessage] = useState('');
     const [pmidSearching, setPmidSearching] = useState<Record<string, boolean>>({});
     const [pmidSearchResults, setPmidSearchResults] = useState<Record<string, PmidSearchResult[]>>({});
+    const [selectedPmidEntries, setSelectedPmidEntries] = useState<Set<string>>(new Set());
+    const [batchEnriching, setBatchEnriching] = useState(false);
 
     const navUser = { name: profile.name || 'User', email: profile.email };
 
@@ -176,6 +180,20 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             }
         };
         fetchProfile();
+
+        // Check if user has existing CV entries
+        const checkExistingEntries = async () => {
+            try {
+                const response = await fetch('/api/cv/entries');
+                if (response.ok) {
+                    const entries = await response.json();
+                    setHasExistingEntries(Array.isArray(entries) && entries.length > 0);
+                }
+            } catch (e) {
+                console.error('Failed to check entries:', e);
+            }
+        };
+        checkExistingEntries();
     }, []);
 
     // CV Upload handlers
@@ -412,7 +430,11 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     delete next[entryId];
                     return next;
                 });
-                setPmidEnrichMessage(`Added PMID ${pmid} to entry`);
+                setSelectedPmidEntries(prev => {
+                    const next = new Set(prev);
+                    next.delete(entryId);
+                    return next;
+                });
                 if (pmidStats) {
                     setPmidStats({
                         ...pmidStats,
@@ -424,6 +446,73 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         } catch (err) {
             console.error('Apply PMID failed:', err);
         }
+    };
+
+    // Batch enrich selected entries
+    const batchEnrichPmids = async () => {
+        if (selectedPmidEntries.size === 0) return;
+
+        setBatchEnriching(true);
+        setPmidEnrichMessage('');
+        let successCount = 0;
+        let failCount = 0;
+
+        const entriesToProcess = pmidEntries.filter(e => selectedPmidEntries.has(e.id));
+
+        for (const entry of entriesToProcess) {
+            try {
+                // Search PubMed for this title
+                const searchRes = await fetch('/api/cv/enrich-pmid', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: entry.title }),
+                });
+                const searchData = await searchRes.json();
+
+                if (searchRes.ok && searchData.results && searchData.results.length > 0) {
+                    // Apply the best match (first result)
+                    const bestMatch = searchData.results[0];
+                    const applyRes = await fetch('/api/cv/enrich-pmid', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            entryId: entry.id,
+                            pmid: bestMatch.pmid,
+                            doi: bestMatch.doi
+                        }),
+                    });
+
+                    if (applyRes.ok) {
+                        successCount++;
+                        // Remove from list
+                        setPmidEntries(prev => prev.filter(e => e.id !== entry.id));
+                        setSelectedPmidEntries(prev => {
+                            const next = new Set(prev);
+                            next.delete(entry.id);
+                            return next;
+                        });
+                    } else {
+                        failCount++;
+                    }
+                } else {
+                    failCount++;
+                }
+            } catch (err) {
+                console.error('Batch enrich error for', entry.id, err);
+                failCount++;
+            }
+        }
+
+        if (pmidStats) {
+            setPmidStats({
+                ...pmidStats,
+                withPmid: pmidStats.withPmid + successCount,
+                withoutPmid: pmidStats.withoutPmid - successCount,
+            });
+        }
+
+        setPmidEnrichMessage(`Enriched ${successCount} entries${failCount > 0 ? `, ${failCount} not found` : ''}`);
+        setBatchEnriching(false);
     };
 
     const searchPubMed = async () => {
@@ -646,88 +735,125 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
 
                 {/* CV Upload Section */}
                 <div className="card mb-8">
-                    <h2 className="text-xl font-semibold mb-4">Import Existing CV</h2>
-                    <p className="text-muted-foreground mb-4">
-                        Upload your existing CV (PDF or Word) and AI will automatically extract sections and entries.
-                    </p>
-
-                    <div
-                        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
-                            ? 'border-primary-500 bg-primary-500/10'
-                            : 'border-border hover:border-primary-500/50'
-                            }`}
-                        onDragEnter={handleDrag}
-                        onDragLeave={handleDrag}
-                        onDragOver={handleDrag}
-                        onDrop={handleDrop}
-                    >
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                            onChange={handleFileSelect}
-                            className="hidden"
-                        />
-
-                        {cvUploading ? (
-                            <div className="flex flex-col items-center py-4">
-                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500/30 border-t-primary-500 mb-4"></div>
-                                <h3 className="text-lg font-semibold mb-2">Processing Your CV...</h3>
-                                <p className="text-muted-foreground text-center max-w-md">
-                                    Our AI is extracting your experiences, publications, and achievements.
-                                </p>
-                                <div className="mt-4 p-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-sm">
-                                    <p className="text-primary-400 font-medium">⏱️ This typically takes 2-3 minutes for large CVs</p>
-                                    <p className="text-muted-foreground mt-1">Please don&apos;t close this page. We&apos;re working on it!</p>
+                    {hasExistingEntries && !cvUploadExpanded ? (
+                        // Collapsed view for users with existing CV
+                        <>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-xl font-semibold">CV Uploaded ✓</h2>
+                                    <p className="text-muted-foreground text-sm mt-1">
+                                        Your CV has been imported. Click Reupload to replace with a new version.
+                                    </p>
                                 </div>
-                            </div>
-                        ) : (
-                            <>
-                                <svg className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                                </svg>
-                                <p className="text-lg font-medium mb-1">Drop your CV here</p>
-                                <p className="text-muted-foreground text-sm mb-4">or click to browse</p>
                                 <button
-                                    onClick={() => fileInputRef.current?.click()}
+                                    onClick={() => setCvUploadExpanded(true)}
                                     className="btn-secondary"
                                 >
-                                    Select File
+                                    Reupload CV
                                 </button>
-                                <p className="text-xs text-muted-foreground mt-3">
-                                    Supports PDF and Word (.doc, .docx)
-                                </p>
-                            </>
-                        )}
-                    </div>
-
-                    {cvError && (
-                        <div className="mt-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-                            {cvError}
-                        </div>
-                    )}
-
-                    {cvMessage && (
-                        <div className="mt-4 p-3 rounded-lg bg-success/10 text-success text-sm">
-                            {cvMessage}
-                        </div>
-                    )}
-
-                    {cvResult && cvResult.categories && cvResult.categories.length > 0 && (
-                        <div className="mt-4 space-y-2">
-                            <p className="text-sm font-medium">Imported Categories:</p>
-                            <div className="grid grid-cols-2 gap-2">
-                                {cvResult.categories.map((cat, index) => (
-                                    <div key={index} className="p-2 rounded bg-secondary/50 text-sm">
-                                        <span className="font-medium">{cat.name}</span>
-                                        <span className="text-muted-foreground ml-2">({cat.entryCount} entries)</span>
-                                    </div>
-                                ))}
                             </div>
-                            <a href="/cv/review" className="btn-primary inline-flex mt-4">
-                                Review Imported Entries →
-                            </a>
-                        </div>
+                        </>
+                    ) : (
+                        // Full upload view for new users or when expanded
+                        <>
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-semibold">
+                                    {hasExistingEntries ? 'Reupload CV' : 'Import Existing CV'}
+                                </h2>
+                                {hasExistingEntries && (
+                                    <button
+                                        onClick={() => setCvUploadExpanded(false)}
+                                        className="text-sm text-muted-foreground hover:text-foreground"
+                                    >
+                                        Cancel
+                                    </button>
+                                )}
+                            </div>
+                            <p className="text-muted-foreground mb-4">
+                                {hasExistingEntries
+                                    ? 'Upload a new CV to add more entries. Existing entries will be preserved.'
+                                    : 'Upload your existing CV (PDF or Word) and AI will automatically extract sections and entries.'}
+                            </p>
+
+                            <div
+                                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+                                    ? 'border-primary-500 bg-primary-500/10'
+                                    : 'border-border hover:border-primary-500/50'
+                                    }`}
+                                onDragEnter={handleDrag}
+                                onDragLeave={handleDrag}
+                                onDragOver={handleDrag}
+                                onDrop={handleDrop}
+                            >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    onChange={handleFileSelect}
+                                    className="hidden"
+                                />
+
+                                {cvUploading ? (
+                                    <div className="flex flex-col items-center py-4">
+                                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500/30 border-t-primary-500 mb-4"></div>
+                                        <h3 className="text-lg font-semibold mb-2">Processing Your CV...</h3>
+                                        <p className="text-muted-foreground text-center max-w-md">
+                                            Our AI is extracting your experiences, publications, and achievements.
+                                        </p>
+                                        <div className="mt-4 p-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-sm">
+                                            <p className="text-primary-400 font-medium">⏱️ This typically takes 2-3 minutes for large CVs</p>
+                                            <p className="text-muted-foreground mt-1">Please don&apos;t close this page. We&apos;re working on it!</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <svg className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                        </svg>
+                                        <p className="text-lg font-medium mb-1">Drop your CV here</p>
+                                        <p className="text-muted-foreground text-sm mb-4">or click to browse</p>
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="btn-secondary"
+                                        >
+                                            Select File
+                                        </button>
+                                        <p className="text-xs text-muted-foreground mt-3">
+                                            Supports PDF and Word (.doc, .docx)
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+
+                            {cvError && (
+                                <div className="mt-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                                    {cvError}
+                                </div>
+                            )}
+
+                            {cvMessage && (
+                                <div className="mt-4 p-3 rounded-lg bg-success/10 text-success text-sm">
+                                    {cvMessage}
+                                </div>
+                            )}
+
+                            {cvResult && cvResult.categories && cvResult.categories.length > 0 && (
+                                <div className="mt-4 space-y-2">
+                                    <p className="text-sm font-medium">Imported Categories:</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {cvResult.categories.map((cat, index) => (
+                                            <div key={index} className="p-2 rounded bg-secondary/50 text-sm">
+                                                <span className="font-medium">{cat.name}</span>
+                                                <span className="text-muted-foreground ml-2">({cat.entryCount} entries)</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <a href="/cv/review" className="btn-primary inline-flex mt-4">
+                                        Review Imported Entries →
+                                    </a>
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
 
@@ -1064,53 +1190,72 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     )}
 
                     {pmidEntries.length > 0 && (
-                        <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                            <p className="text-sm text-muted-foreground mb-2">
-                                Click &quot;Find PMID&quot; to search PubMed for each publication:
+                        <div className="space-y-3">
+                            {/* Batch controls */}
+                            <div className="flex items-center justify-between gap-4 p-3 rounded-lg bg-secondary/30">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedPmidEntries.size === pmidEntries.length && pmidEntries.length > 0}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                setSelectedPmidEntries(new Set(pmidEntries.map(e => e.id)));
+                                            } else {
+                                                setSelectedPmidEntries(new Set());
+                                            }
+                                        }}
+                                        className="w-4 h-4 rounded"
+                                    />
+                                    <span className="text-sm">Select All ({pmidEntries.length})</span>
+                                </label>
+                                <button
+                                    onClick={batchEnrichPmids}
+                                    disabled={selectedPmidEntries.size === 0 || batchEnriching}
+                                    className="btn-primary text-sm"
+                                >
+                                    {batchEnriching
+                                        ? `Enriching... (${selectedPmidEntries.size})`
+                                        : `Auto-Add PMIDs (${selectedPmidEntries.size} selected)`}
+                                </button>
+                            </div>
+
+                            <p className="text-xs text-muted-foreground">
+                                Select entries and click &quot;Auto-Add PMIDs&quot; to find and apply PMIDs automatically.
                             </p>
-                            {pmidEntries.map(entry => (
-                                <div key={entry.id} className="p-3 rounded-lg bg-secondary/50 space-y-2">
-                                    <p className="font-medium text-sm">{entry.title}</p>
-                                    <p className="text-xs text-muted-foreground">{entry.categoryName}</p>
 
-                                    <button
-                                        onClick={() => searchPmidForEntry(entry.id, entry.title)}
-                                        disabled={pmidSearching[entry.id]}
-                                        className="btn-secondary text-xs px-3 py-1"
+                            {/* Entry list with checkboxes */}
+                            <div className="max-h-[400px] overflow-y-auto space-y-2">
+                                {pmidEntries.map(entry => (
+                                    <label
+                                        key={entry.id}
+                                        className={`p-3 rounded-lg block cursor-pointer ${selectedPmidEntries.has(entry.id)
+                                            ? 'bg-primary/10 border border-primary/30'
+                                            : 'bg-secondary/50'
+                                            }`}
                                     >
-                                        {pmidSearching[entry.id] ? 'Searching...' : 'Find PMID'}
-                                    </button>
-
-                                    {pmidSearchResults[entry.id] && pmidSearchResults[entry.id].length > 0 && (
-                                        <div className="mt-2 space-y-2 pl-4 border-l-2 border-primary/30">
-                                            <p className="text-xs text-muted-foreground">
-                                                Found {pmidSearchResults[entry.id].length} possible matches:
-                                            </p>
-                                            {pmidSearchResults[entry.id].map(result => (
-                                                <div key={result.pmid} className="p-2 rounded bg-background/50 text-xs space-y-1">
-                                                    <p className="font-medium">{result.title}</p>
-                                                    <p className="text-muted-foreground">{result.authors} • {result.journal} ({result.pubDate})</p>
-                                                    <div className="flex gap-2 items-center">
-                                                        <span className="text-primary-400">PMID: {result.pmid}</span>
-                                                        <button
-                                                            onClick={() => applyPmidToEntry(entry.id, result.pmid, result.doi)}
-                                                            className="btn-primary text-xs px-2 py-0.5"
-                                                        >
-                                                            Apply This PMID
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                        <div className="flex items-start gap-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedPmidEntries.has(entry.id)}
+                                                onChange={(e) => {
+                                                    const newSet = new Set(selectedPmidEntries);
+                                                    if (e.target.checked) {
+                                                        newSet.add(entry.id);
+                                                    } else {
+                                                        newSet.delete(entry.id);
+                                                    }
+                                                    setSelectedPmidEntries(newSet);
+                                                }}
+                                                className="mt-1 w-4 h-4 rounded"
+                                            />
+                                            <div className="flex-1">
+                                                <p className="font-medium text-sm">{entry.title}</p>
+                                                <p className="text-xs text-muted-foreground">{entry.categoryName}</p>
+                                            </div>
                                         </div>
-                                    )}
-
-                                    {pmidSearchResults[entry.id] && pmidSearchResults[entry.id].length === 0 && (
-                                        <p className="text-xs text-muted-foreground mt-2">
-                                            No matches found in PubMed
-                                        </p>
-                                    )}
-                                </div>
-                            ))}
+                                    </label>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>

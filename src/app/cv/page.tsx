@@ -24,7 +24,7 @@ export default async function CVPage() {
                         include: {
                             entries: {
                                 orderBy: [
-                                    { date: 'desc' },
+                                    { date: { sort: 'desc', nulls: 'last' } },
                                     { createdAt: 'desc' },
                                 ],
                             },

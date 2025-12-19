@@ -774,8 +774,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     )}
 
                     {duplicateGroups.length > 0 && (
-                        <div className="max-h-96 overflow-y-auto space-y-3">
-                            {duplicateGroups.slice(0, 10).map((group, gi) => (
+                        <div className="max-h-[600px] overflow-y-auto space-y-3">
+                            {duplicateGroups.map((group, gi) => (
                                 <div key={gi} className="p-3 rounded-lg bg-secondary/50">
                                     <p className="font-medium text-sm mb-2 line-clamp-1">{group.entries[0]?.title}</p>
                                     <div className="space-y-1">
@@ -837,11 +837,6 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                     </div>
                                 </div>
                             ))}
-                            {duplicateGroups.length > 10 && (
-                                <p className="text-sm text-muted-foreground text-center">
-                                    ... and {duplicateGroups.length - 10} more groups
-                                </p>
-                            )}
                         </div>
                     )}
                 </div>

@@ -245,9 +245,12 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setCvResult(data);
             setHasExistingEntries(true); // CV was just uploaded
 
-            // Auto-advance if in wizard
+            // Auto-advance if in wizard (with delay to show success)
             if (wizardStep === 2) {
-                setWizardStep(3);
+                setCvMessage('CV ADDED SUCCESSFULLY!');
+                setTimeout(() => {
+                    setWizardStep(3);
+                }, 1500);
             }
         } catch (err) {
             setCvError(err instanceof Error ? err.message : 'Upload failed');
@@ -650,7 +653,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                             {wizardStep > 1 && (
                                 <button onClick={() => setWizardStep(s => s - 1)} className="text-sm text-muted-foreground hover:text-foreground">Back</button>
                             )}
-                            <button onClick={() => setWizardStep(0)} className="text-sm text-destructive hover:text-destructive/80">Exit Setup</button>
+
                         </div>
                     </div>
                     <div className="h-2 bg-secondary rounded-full overflow-hidden">

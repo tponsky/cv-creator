@@ -646,6 +646,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     <div className="flex justify-between items-center mb-2">
                         <span className="text-sm font-medium text-muted-foreground">Step {wizardStep} of {steps.length}: {currentStepName}</span>
                         <div className="flex gap-2">
+                            <button onClick={() => setWizardStep(0)} className="text-sm text-red-500 hover:text-red-700 font-medium">Exit Setup</button>
                             {wizardStep > 1 && (
                                 <button onClick={() => setWizardStep(s => s - 1)} className="text-sm text-muted-foreground hover:text-foreground">Back</button>
                             )}

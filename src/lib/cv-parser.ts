@@ -50,9 +50,16 @@ Then, for each section you find (like Publications, Presentations, Awards, Grant
 For each entry, extract:
 - title: The main title/name of the item
 - description: Any additional details, authors, journal names, etc.
-- date: The date if present (in ISO format YYYY-MM-DD or YYYY-MM or just YYYY)
+- date: CRITICAL - Extract ANY date/year mentioned. Look for: years like 2024, 2020-2024, Jan 2024, March 2020-Present, etc. Use ISO format (YYYY-MM-DD, YYYY-MM, or YYYY). ALWAYS try to find a date - most CV entries have years.
 - location: Location if relevant (city, institution, etc.)
 - url: Any URL or DOI if present
+
+IMPORTANT DATE EXTRACTION:
+- Publications usually have years like "2024" or "Jan 2024"
+- Date ranges like "2018-2022" → use the END date (2022)
+- "Present" or "Current" entries → use start date, leave end as null
+- Role dates like "July 2020 - Present" → extract "2020-07"
+- Even if date appears in description text, STILL extract it to the date field
 
 Common CV sections to look for:
 - Publications (peer-reviewed articles, books, chapters)
@@ -93,7 +100,7 @@ Return your response as a JSON object with this structure:
   ]
 }
 
-Parse ALL entries you can find. Be thorough. Return ONLY valid JSON.`;
+Parse ALL entries you can find. Be thorough. ALWAYS extract dates when any year is visible. Return ONLY valid JSON.`;
 
 export async function parseCV(text: string): Promise<ParsedCV> {
     if (!OPENAI_API_KEY) {

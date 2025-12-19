@@ -69,6 +69,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [hasExistingEntries, setHasExistingEntries] = useState(false);
     const [cvResetting, setCvResetting] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [wizardStep, setWizardStep] = useState(0); // 0 = normal settings, 1-6 = onboarding wizard
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Deduplication state
@@ -179,7 +180,12 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 const response = await fetch('/api/cv/entries');
                 if (response.ok) {
                     const entries = await response.json();
-                    setHasExistingEntries(Array.isArray(entries) && entries.length > 0);
+                    const hasEntries = Array.isArray(entries) && entries.length > 0;
+                    setHasExistingEntries(hasEntries);
+                    // Start wizard for new users (or empty CV)
+                    if (!hasEntries) {
+                        setWizardStep(1);
+                    }
                 }
             } catch (e) {
                 console.error('Failed to check entries:', e);
@@ -420,65 +426,84 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         if (selectedPmidEntries.size === 0) return;
 
         setBatchEnriching(true);
-        setPmidEnrichMessage('');
+        setPmidEnrichMessage('Starting batch processing...');
+
+        const entriesToProcess = pmidEntries.filter(e => selectedPmidEntries.has(e.id));
         let successCount = 0;
         let failCount = 0;
 
-        const entriesToProcess = pmidEntries.filter(e => selectedPmidEntries.has(e.id));
+        // Process in chunks of 5 to speed up but verify progress
+        const chunkSize = 5;
+        for (let i = 0; i < entriesToProcess.length; i += chunkSize) {
+            const chunk = entriesToProcess.slice(i, i + chunkSize);
+            setPmidEnrichMessage(`Processing ${i + 1} to ${Math.min(i + chunkSize, entriesToProcess.length)} of ${entriesToProcess.length} entries...`);
 
-        for (const entry of entriesToProcess) {
-            try {
-                // Search PubMed for this title
-                const searchRes = await fetch('/api/cv/enrich-pmid', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title: entry.title }),
-                });
-                const searchData = await searchRes.json();
-
-                if (searchRes.ok && searchData.results && searchData.results.length > 0) {
-                    // Apply the best match (first result)
-                    const bestMatch = searchData.results[0];
-                    const applyRes = await fetch('/api/cv/enrich-pmid', {
-                        method: 'POST',
+            // Limit concurrency
+            const results = await Promise.all(chunk.map(async (entry) => {
+                try {
+                    // Search PubMed for this title
+                    const searchRes = await fetch('/api/cv/enrich-pmid', {
+                        method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            entryId: entry.id,
-                            pmid: bestMatch.pmid,
-                            doi: bestMatch.doi
-                        }),
+                        body: JSON.stringify({ title: entry.title }),
                     });
+                    const searchData = await searchRes.json();
 
-                    if (applyRes.ok) {
-                        successCount++;
-                        // Remove from list
-                        setPmidEntries(prev => prev.filter(e => e.id !== entry.id));
-                        setSelectedPmidEntries(prev => {
-                            const next = new Set(prev);
-                            next.delete(entry.id);
-                            return next;
+                    if (searchRes.ok && searchData.results && searchData.results.length > 0) {
+                        // Apply the best match (first result)
+                        const bestMatch = searchData.results[0];
+                        const applyRes = await fetch('/api/cv/enrich-pmid', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                entryId: entry.id,
+                                pmid: bestMatch.pmid,
+                                doi: bestMatch.doi
+                            }),
                         });
-                    } else {
-                        failCount++;
+
+                        return applyRes.ok ? { success: true, id: entry.id } : { success: false, id: entry.id };
                     }
+                    return { success: false, id: entry.id };
+                } catch (err) {
+                    console.error('Batch enrich error for', entry.id, err);
+                    return { success: false, id: entry.id };
+                }
+            }));
+
+            // Handle results for this chunk
+            const processedIds = new Set<string>();
+            let chunkSuccess = 0;
+
+            results.forEach(res => {
+                if (res.success) {
+                    chunkSuccess++;
+                    processedIds.add(res.id);
                 } else {
                     failCount++;
                 }
-            } catch (err) {
-                console.error('Batch enrich error for', entry.id, err);
-                failCount++;
+            });
+            successCount += chunkSuccess;
+
+            // Update UI incrementally
+            if (processedIds.size > 0) {
+                setPmidEntries(prev => prev.filter(e => !processedIds.has(e.id)));
+                setSelectedPmidEntries(prev => {
+                    const next = new Set(prev);
+                    processedIds.forEach(id => next.delete(id));
+                    return next;
+                });
+
+                // Update stats
+                setPmidStats(prev => prev ? ({
+                    ...prev,
+                    withPmid: prev.withPmid + chunkSuccess,
+                    withoutPmid: prev.withoutPmid - chunkSuccess,
+                }) : null);
             }
         }
 
-        if (pmidStats) {
-            setPmidStats({
-                ...pmidStats,
-                withPmid: pmidStats.withPmid + successCount,
-                withoutPmid: pmidStats.withoutPmid - successCount,
-            });
-        }
-
-        setPmidEnrichMessage(`Enriched ${successCount} entries${failCount > 0 ? `, ${failCount} not found` : ''}`);
+        setPmidEnrichMessage(`Finished: ${successCount} enriched, ${failCount} not found/failed`);
         setBatchEnriching(false);
     };
 
@@ -602,6 +627,296 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setImporting(false);
         }
     };
+
+    // WIZARD RENDERER
+    const renderWizardStep = () => {
+        const steps = ['Welcome', 'Upload CV', 'Enrich PMIDs', 'Find Articles', 'Profile', 'Automation'];
+        const currentStepName = steps[wizardStep - 1] || '';
+        const progress = (wizardStep / steps.length) * 100;
+
+        return (
+            <div className="space-y-6">
+                {/* Progress Header */}
+                <div className="mb-8">
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-medium text-muted-foreground">Step {wizardStep} of {steps.length}: {currentStepName}</span>
+                        <div className="flex gap-2">
+                            {wizardStep > 1 && (
+                                <button onClick={() => setWizardStep(s => s - 1)} className="text-sm text-muted-foreground hover:text-foreground">Back</button>
+                            )}
+                            <button onClick={() => setWizardStep(0)} className="text-sm text-destructive hover:text-destructive/80">Exit Setup</button>
+                        </div>
+                    </div>
+                    <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                        <div className="h-full bg-primary transition-all duration-500 ease-out" style={{ width: `${progress}%` }} />
+                    </div>
+                </div>
+
+                {/* Step Content */}
+                <div className="card p-8 min-h-[400px]">
+                    {wizardStep === 1 && (
+                        <div className="text-center space-y-6 py-8">
+                            <h2 className="text-3xl font-bold">Welcome to CV Creator!</h2>
+                            <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+                                We&apos;ll walk you through a quick setup to optimize your CV management, prevent duplicates, and keep your profile up to date.
+                            </p>
+                            <button onClick={() => setWizardStep(2)} className="btn-primary text-lg px-8 py-3">Let&apos;s Get Started</button>
+                        </div>
+                    )}
+
+                    {wizardStep === 2 && (
+                        <div className="space-y-6">
+                            <div className="text-center mb-8">
+                                <h2 className="text-2xl font-bold">Step 1: Upload Your CV</h2>
+                                <p className="text-muted-foreground">If you have an existing CV (PDF or Word), upload it now so we can import your work.</p>
+                            </div>
+
+                            <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors
+                                ${dragActive ? 'border-primary bg-primary/5' : 'border-border'}
+                                ${cvResult ? 'border-green-500 bg-green-50/10' : ''}`}
+                                onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}>
+
+                                {cvUploading ? (
+                                    <div className="py-12">
+                                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+                                        <p className="text-lg">Analyzing your CV...</p>
+                                        <p className="text-sm text-muted-foreground">This uses AI and may take a minute.</p>
+                                    </div>
+                                ) : hasExistingEntries ? (
+                                    <div className="py-8">
+                                        <div className="text-green-500 text-5xl mb-4">✓</div>
+                                        <h3 className="text-xl font-bold mb-2">CV Uploaded Successfully!</h3>
+                                        <p className="text-muted-foreground mb-6">We extracted your entries.</p>
+                                        <div className="flex justify-center gap-4">
+                                            <button onClick={() => setHasExistingEntries(false)} className="btn-secondary">Re-upload</button>
+                                            <button onClick={() => setWizardStep(3)} className="btn-primary">Next: Prevent Duplicates →</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="mb-4 text-4xl">📄</div>
+                                        <p className="mb-4 text-lg">Drag & drop your CV here, or</p>
+                                        <button onClick={() => fileInputRef.current?.click()} className="btn-secondary mb-6">Select File</button>
+                                        <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.doc" onChange={handleFileSelect} />
+                                        <p className="text-sm text-muted-foreground">Supported formats: PDF, Word (.docx, .doc)</p>
+
+                                        <div className="mt-8 pt-8 border-t">
+                                            <button onClick={() => setWizardStep(3)} className="text-muted-foreground hover:text-foreground">
+                                                I don&apos;t have a CV file, skip this step →
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                                {cvError && <p className="text-destructive mt-4">{cvError}</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    {wizardStep === 3 && (
+                        <div className="space-y-6">
+                            <div className="text-center mb-8">
+                                <h2 className="text-2xl font-bold">Step 2: Prevent Duplicates</h2>
+                                <p className="text-muted-foreground">We recommend adding PMIDs (PubMed IDs) to your articles. This helps us identify duplicates when scanning online sources.</p>
+                            </div>
+
+                            {!pmidStats ? (
+                                <div className="text-center py-8">
+                                    <button onClick={fetchPmidEntries} disabled={pmidLoading} className="btn-primary text-lg px-8 py-3">
+                                        {pmidLoading ? 'Scanning...' : 'Scan CV for Missing PMIDs'}
+                                    </button>
+                                    <p className="mt-4 text-sm text-muted-foreground">We will cross-reference your titles with PubMed.</p>
+
+                                    <div className="mt-8 pt-8 border-t">
+                                        <button onClick={() => setWizardStep(4)} className="text-muted-foreground text-sm">Skip this step</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="flex gap-4 p-4 bg-muted/30 rounded-lg justify-center">
+                                        <div className="text-center">
+                                            <div className="text-2xl font-bold text-green-500">{pmidStats.withPmid}</div>
+                                            <div className="text-xs text-muted-foreground">Has PMID</div>
+                                        </div>
+                                        <div className="text-center">
+                                            <div className="text-2xl font-bold text-orange-500">{pmidStats.withoutPmid}</div>
+                                            <div className="text-xs text-muted-foreground">Missing PMID</div>
+                                        </div>
+                                    </div>
+
+                                    {pmidEntries.length > 0 ? (
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between p-4 border rounded-lg bg-blue-50/50">
+                                                <div>
+                                                    <h4 className="font-semibold text-blue-900">Auto-Enrichment</h4>
+                                                    <p className="text-sm text-blue-700">Found {pmidEntries.length} entries we can check against PubMed.</p>
+                                                    {pmidEnrichMessage && <p className="text-sm font-medium mt-1">{pmidEnrichMessage}</p>}
+                                                </div>
+                                                <button
+                                                    onClick={batchEnrichPmids}
+                                                    disabled={batchEnriching || selectedPmidEntries.size === 0}
+                                                    className="btn-primary whitespace-nowrap"
+                                                >
+                                                    {batchEnriching ? 'Processing...' : 'Auto-Add PMIDs to All'}
+                                                </button>
+                                            </div>
+
+                                            <div className="max-h-60 overflow-y-auto border rounded-md p-2 text-sm bg-muted/10">
+                                                {pmidEntries.map(entry => (
+                                                    <div key={entry.id} className="p-2 border-b last:border-0 flex justify-between">
+                                                        <span className="truncate flex-1 pr-4">{entry.title}</span>
+                                                        <span className="text-muted-foreground text-xs whitespace-nowrap">Missing</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center text-green-500 py-4">
+                                            <p>All scanned entries have PMIDs or none found.</p>
+                                        </div>
+                                    )}
+
+                                    <div className="flex justify-end pt-6 border-t">
+                                        <button onClick={() => setWizardStep(4)} className="btn-primary">Next: Find Missing Articles →</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {wizardStep === 4 && (
+                        <div className="space-y-6">
+                            <div className="text-center mb-8">
+                                <h2 className="text-2xl font-bold">Step 3: Find Missing Articles</h2>
+                                <p className="text-muted-foreground">Scan PubMed for articles that might be missing from your CV.</p>
+                            </div>
+
+                            <div className="max-w-xl mx-auto">
+                                <div className="flex gap-2 mb-6">
+                                    <input
+                                        type="text"
+                                        value={authorName}
+                                        onChange={(e) => setAuthorName(e.target.value)}
+                                        placeholder="Enter Author Name (e.g., Ponsky T)"
+                                        className="input-field flex-1"
+                                    />
+                                    <button onClick={searchPubMed} disabled={loading} className="btn-primary">
+                                        {loading ? 'Searching...' : 'Search'}
+                                    </button>
+                                </div>
+
+                                {publications.length > 0 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 bg-muted/30 rounded-lg">
+                                            <h3 className="font-medium mb-2">Found {publications.length} potential articles</h3>
+                                            <p className="text-sm text-muted-foreground mb-4">Select the ones that are yours.</p>
+
+                                            <div className="max-h-60 overflow-y-auto space-y-2 mb-4">
+                                                {publications.map((pub, i) => (
+                                                    <label key={i} className="flex gap-3 p-3 bg-background border rounded cursor-pointer hover:border-primary/50">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedPubs.has(i)}
+                                                            onChange={() => {
+                                                                const next = new Set(selectedPubs);
+                                                                if (next.has(i)) next.delete(i);
+                                                                else next.add(i);
+                                                                setSelectedPubs(next);
+                                                            }}
+                                                            className="mt-1"
+                                                        />
+                                                        <div>
+                                                            <div className="font-medium text-sm">{pub.title}</div>
+                                                            <div className="text-xs text-muted-foreground">{pub.sourceType} • {pub.date}</div>
+                                                        </div>
+                                                    </label>
+                                                ))}
+                                            </div>
+
+                                            <button
+                                                onClick={importSelectedPublications}
+                                                disabled={selectedPubs.size === 0 || importing}
+                                                className="w-full btn-primary"
+                                            >
+                                                {importing ? 'Importing...' : `Import ${selectedPubs.size} Selected`}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex justify-end pt-6 mt-8 border-t">
+                                    <button onClick={() => setWizardStep(5)} className="btn-primary">Next: Confirm Profile →</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {wizardStep === 5 && (
+                        <div className="space-y-6">
+                            <div className="text-center mb-8">
+                                <h2 className="text-2xl font-bold">Step 4: Confirm Profile</h2>
+                                <p className="text-muted-foreground">Make sure your profile information is correct.</p>
+                            </div>
+
+                            <div className="max-w-xl mx-auto space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Full Name</label>
+                                    <input value={profile.name || ''} onChange={e => setProfile({ ...profile, name: e.target.value })} className="input-field w-full" placeholder="Dr. Jane Doe" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Institution</label>
+                                    <input value={profile.institution || ''} onChange={e => setProfile({ ...profile, institution: e.target.value })} className="input-field w-full" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Email</label>
+                                    <input value={profile.email || ''} onChange={e => setProfile({ ...profile, email: e.target.value })} className="input-field w-full" />
+                                </div>
+
+                                <div className="flex justify-end pt-6 mt-8 border-t gap-2">
+                                    <button onClick={handleSaveProfile} className="btn-secondary">Save Profile</button>
+                                    <button onClick={async () => { await handleSaveProfile(); setWizardStep(6); }} className="btn-primary">Save & Next →</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {wizardStep === 6 && (
+                        <div className="text-center space-y-6 py-8">
+                            <h2 className="text-3xl font-bold">All Set! 🚀</h2>
+                            <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+                                Your CV is set up. You can now enable auto-updates to keep it current.
+                            </p>
+
+                            <div className="max-w-md mx-auto p-6 bg-muted/30 rounded-lg text-left space-y-4">
+                                <h3 className="font-semibold">Automation Settings</h3>
+                                <p className="text-sm text-muted-foreground">You can configure these in Settings later.</p>
+                                <div className="text-sm space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <span>✅</span> <span>PubMed Auto-Update: Checks weekly for new papers</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span>✅</span> <span>Email Import: Forward emails to your unique address</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button onClick={() => { setWizardStep(0); window.location.href = '/cv'; }} className="btn-primary text-lg px-8 py-3">Go to My CV Dashboard</button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    if (wizardStep > 0) {
+        return (
+            <div className="min-h-screen bg-background">
+                <Navbar user={navUser} />
+                <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    {renderWizardStep()}
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background">

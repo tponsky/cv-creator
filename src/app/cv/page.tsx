@@ -23,10 +23,7 @@ export default async function CVPage() {
                         orderBy: { displayOrder: 'asc' },
                         include: {
                             entries: {
-                                orderBy: [
-                                    { date: { sort: 'desc', nulls: 'last' } },
-                                    { createdAt: 'desc' },
-                                ],
+                                orderBy: { displayOrder: 'asc' },
                             },
                         },
                     },

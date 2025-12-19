@@ -67,6 +67,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [dragActive, setDragActive] = useState(false);
     const [cvUploadExpanded, setCvUploadExpanded] = useState(false);
     const [hasExistingEntries, setHasExistingEntries] = useState(false);
+    const [cvResetting, setCvResetting] = useState(false);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Deduplication state
@@ -235,10 +237,37 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
 
             setCvMessage(data.message);
             setCvResult(data);
+            setHasExistingEntries(true); // CV was just uploaded
         } catch (err) {
             setCvError(err instanceof Error ? err.message : 'Upload failed');
         } finally {
             setCvUploading(false);
+        }
+    };
+
+    // Reset/delete all CV data
+    const resetCV = async () => {
+        setCvResetting(true);
+        try {
+            const response = await fetch('/api/cv/reset', { method: 'DELETE' });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Reset failed');
+            }
+
+            // Clear local state
+            setCvResult(null);
+            setCvMessage(`CV data deleted: ${data.deleted.categories} categories, ${data.deleted.entries} entries`);
+            setHasExistingEntries(false);
+            setShowResetConfirm(false);
+
+            // Refresh the page after a moment to show fresh state
+            setTimeout(() => window.location.reload(), 2000);
+        } catch (err) {
+            setCvError(err instanceof Error ? err.message : 'Reset failed');
+        } finally {
+            setCvResetting(false);
         }
     };
 
@@ -1207,6 +1236,44 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     <a href="/cv/review" className="btn-secondary inline-flex">
                         Go to Review Queue →
                     </a>
+                </div>
+
+                {/* Danger Zone */}
+                <div className="card mt-8 border-destructive/50">
+                    <h2 className="text-xl font-semibold mb-4 text-destructive">Danger Zone</h2>
+                    <p className="text-muted-foreground mb-4">
+                        Delete all your CV data including categories, entries, and pending items. This cannot be undone.
+                    </p>
+
+                    {!showResetConfirm ? (
+                        <button
+                            onClick={() => setShowResetConfirm(true)}
+                            className="btn-secondary text-destructive border-destructive/50 hover:bg-destructive/10"
+                        >
+                            Delete All CV Data
+                        </button>
+                    ) : (
+                        <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30 space-y-3">
+                            <p className="text-sm font-medium text-destructive">
+                                Are you sure? This will delete ALL your CV data permanently.
+                            </p>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={resetCV}
+                                    disabled={cvResetting}
+                                    className="btn-primary bg-destructive hover:bg-destructive/80"
+                                >
+                                    {cvResetting ? 'Deleting...' : 'Yes, Delete Everything'}
+                                </button>
+                                <button
+                                    onClick={() => setShowResetConfirm(false)}
+                                    className="btn-secondary"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </main>
         </div>

@@ -112,10 +112,20 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         categoryName: string;
         hasPMID: boolean;
     }
+    interface PmidSearchResult {
+        pmid: string;
+        title: string;
+        doi: string | null;
+        journal: string;
+        pubDate: string;
+        authors: string;
+    }
     const [pmidEntries, setPmidEntries] = useState<PmidEntry[]>([]);
     const [pmidStats, setPmidStats] = useState<{ total: number; withPmid: number; withoutPmid: number } | null>(null);
     const [pmidLoading, setPmidLoading] = useState(false);
     const [pmidEnrichMessage, setPmidEnrichMessage] = useState('');
+    const [pmidSearching, setPmidSearching] = useState<Record<string, boolean>>({});
+    const [pmidSearchResults, setPmidSearchResults] = useState<Record<string, PmidSearchResult[]>>({});
 
     const navUser = { name: profile.name || 'User', email: profile.email };
 
@@ -365,6 +375,54 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             console.error('Failed to fetch PMID entries:', err);
         } finally {
             setPmidLoading(false);
+        }
+    };
+
+    const searchPmidForEntry = async (entryId: string, title: string) => {
+        setPmidSearching(prev => ({ ...prev, [entryId]: true }));
+        try {
+            const res = await fetch('/api/cv/enrich-pmid', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title }),
+            });
+            const data = await res.json();
+            if (res.ok && data.results) {
+                setPmidSearchResults(prev => ({ ...prev, [entryId]: data.results }));
+            }
+        } catch (err) {
+            console.error('PMID search failed:', err);
+        } finally {
+            setPmidSearching(prev => ({ ...prev, [entryId]: false }));
+        }
+    };
+
+    const applyPmidToEntry = async (entryId: string, pmid: string, doi: string | null) => {
+        try {
+            const res = await fetch('/api/cv/enrich-pmid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entryId, pmid, doi }),
+            });
+            if (res.ok) {
+                // Remove from list and clear search results
+                setPmidEntries(prev => prev.filter(e => e.id !== entryId));
+                setPmidSearchResults(prev => {
+                    const next = { ...prev };
+                    delete next[entryId];
+                    return next;
+                });
+                setPmidEnrichMessage(`Added PMID ${pmid} to entry`);
+                if (pmidStats) {
+                    setPmidStats({
+                        ...pmidStats,
+                        withPmid: pmidStats.withPmid + 1,
+                        withoutPmid: pmidStats.withoutPmid - 1,
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('Apply PMID failed:', err);
         }
     };
 
@@ -1006,21 +1064,53 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     )}
 
                     {pmidEntries.length > 0 && (
-                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                        <div className="space-y-3 max-h-[500px] overflow-y-auto">
                             <p className="text-sm text-muted-foreground mb-2">
-                                These publications don&apos;t have PMIDs yet:
+                                Click &quot;Find PMID&quot; to search PubMed for each publication:
                             </p>
-                            {pmidEntries.slice(0, 20).map(entry => (
-                                <div key={entry.id} className="p-3 rounded-lg bg-secondary/50">
-                                    <p className="font-medium text-sm line-clamp-2">{entry.title}</p>
-                                    <p className="text-xs text-muted-foreground mt-1">{entry.categoryName}</p>
+                            {pmidEntries.map(entry => (
+                                <div key={entry.id} className="p-3 rounded-lg bg-secondary/50 space-y-2">
+                                    <p className="font-medium text-sm">{entry.title}</p>
+                                    <p className="text-xs text-muted-foreground">{entry.categoryName}</p>
+
+                                    <button
+                                        onClick={() => searchPmidForEntry(entry.id, entry.title)}
+                                        disabled={pmidSearching[entry.id]}
+                                        className="btn-secondary text-xs px-3 py-1"
+                                    >
+                                        {pmidSearching[entry.id] ? 'Searching...' : 'Find PMID'}
+                                    </button>
+
+                                    {pmidSearchResults[entry.id] && pmidSearchResults[entry.id].length > 0 && (
+                                        <div className="mt-2 space-y-2 pl-4 border-l-2 border-primary/30">
+                                            <p className="text-xs text-muted-foreground">
+                                                Found {pmidSearchResults[entry.id].length} possible matches:
+                                            </p>
+                                            {pmidSearchResults[entry.id].map(result => (
+                                                <div key={result.pmid} className="p-2 rounded bg-background/50 text-xs space-y-1">
+                                                    <p className="font-medium">{result.title}</p>
+                                                    <p className="text-muted-foreground">{result.authors} • {result.journal} ({result.pubDate})</p>
+                                                    <div className="flex gap-2 items-center">
+                                                        <span className="text-primary-400">PMID: {result.pmid}</span>
+                                                        <button
+                                                            onClick={() => applyPmidToEntry(entry.id, result.pmid, result.doi)}
+                                                            className="btn-primary text-xs px-2 py-0.5"
+                                                        >
+                                                            Apply This PMID
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {pmidSearchResults[entry.id] && pmidSearchResults[entry.id].length === 0 && (
+                                        <p className="text-xs text-muted-foreground mt-2">
+                                            No matches found in PubMed
+                                        </p>
+                                    )}
                                 </div>
                             ))}
-                            {pmidEntries.length > 20 && (
-                                <p className="text-sm text-muted-foreground text-center">
-                                    ...and {pmidEntries.length - 20} more
-                                </p>
-                            )}
                         </div>
                     )}
                 </div>

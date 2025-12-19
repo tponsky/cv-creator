@@ -696,9 +696,10 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 <p className="text-muted-foreground">If you have an existing CV (PDF or Word), upload it now so we can import your work.</p>
                             </div>
 
-                            <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors
+                            <div className={`rounded-lg p-8 text-center transition-colors
+                                ${!hasExistingEntries ? 'border-2 border-dashed' : ''}
                                 ${dragActive ? 'border-primary bg-primary/5' : 'border-border'}
-                                ${cvResult ? 'border-green-500 bg-green-50/10' : ''}`}
+                                ${cvResult ? 'bg-green-50/10' : ''}`}
                                 onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}>
 
                                 {cvUploading ? (

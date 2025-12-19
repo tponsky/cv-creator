@@ -174,18 +174,34 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         };
         fetchProfile();
 
-        // Check if user has existing CV entries
+        // Check if user has existing CV entries OR pending entries
         const checkExistingEntries = async () => {
             try {
-                const response = await fetch('/api/cv/entries');
-                if (response.ok) {
-                    const entries = await response.json();
-                    const hasEntries = Array.isArray(entries) && entries.length > 0;
-                    setHasExistingEntries(hasEntries);
-                    // Start wizard for new users (or empty CV)
-                    if (!hasEntries) {
-                        setWizardStep(1);
-                    }
+                const [entriesRes, pendingRes] = await Promise.all([
+                    fetch('/api/cv/entries'),
+                    fetch('/api/pending')
+                ]);
+
+                let hasEntries = false;
+                let hasPending = false;
+
+                if (entriesRes.ok) {
+                    const entries = await entriesRes.json();
+                    hasEntries = Array.isArray(entries) && entries.length > 0;
+                }
+
+                if (pendingRes.ok) {
+                    const pendingData = await pendingRes.json();
+                    hasPending = Array.isArray(pendingData.entries) && pendingData.entries.length > 0;
+                }
+
+                // Consider existing if either entries or pending items exist
+                const exists = hasEntries || hasPending;
+                setHasExistingEntries(exists);
+
+                // Start wizard ONLY for completely new users (no confirmed OR pending entries)
+                if (!exists) {
+                    setWizardStep(1);
                 }
             } catch (e) {
                 console.error('Failed to check entries:', e);

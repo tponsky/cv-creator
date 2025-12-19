@@ -180,9 +180,18 @@ export async function POST(request: NextRequest) {
                 // Add to set to avoid duplicates within same import
                 existingTitles.add(normalizedNewTitle);
 
-                await prisma.pendingEntry.create({
+                // Get current max display order for this category if needed (or just assume we append)
+                // We'll calculate it inside the loop to ensure correct ordering
+                const maxEntryOrder = await prisma.entry.findFirst({
+                    where: { categoryId: category.id },
+                    orderBy: { displayOrder: 'desc' },
+                    select: { displayOrder: true },
+                });
+                const nextOrder = (maxEntryOrder?.displayOrder ?? -1) + 1;
+
+                await prisma.entry.create({
                     data: {
-                        userId: user.id,
+                        categoryId: category.id,
                         title: entry.title,
                         description: entry.description,
                         date: parseDate(entry.date),
@@ -193,8 +202,7 @@ export async function POST(request: NextRequest) {
                             originalCategory: parsedCategory.name,
                             importedAt: new Date().toISOString(),
                         },
-                        suggestedCategory: parsedCategory.name,
-                        status: 'pending',
+                        displayOrder: nextOrder,
                     },
                 });
                 totalEntries++;

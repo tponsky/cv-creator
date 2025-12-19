@@ -244,6 +244,11 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             setCvMessage(data.message);
             setCvResult(data);
             setHasExistingEntries(true); // CV was just uploaded
+
+            // Auto-advance if in wizard
+            if (wizardStep === 2) {
+                setWizardStep(3);
+            }
         } catch (err) {
             setCvError(err instanceof Error ? err.message : 'Upload failed');
         } finally {

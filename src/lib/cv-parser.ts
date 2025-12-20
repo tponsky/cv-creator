@@ -290,10 +290,16 @@ ${text}`;
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     try {
         const pdfModule = await import('pdf-parse');
-        // Handle both ES and CommonJS modules
+        // Classic pdf-parse is a function exported via module.exports
+        // In ESM import, it might be in .default or the module itself
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const parsePDF = (pdfModule as any).default || pdfModule;
-        const data = await parsePDF(buffer);
+        const pdfParser = (pdfModule as any).default || pdfModule;
+
+        if (typeof pdfParser !== 'function') {
+            throw new Error('pdf-parse is not a function. Check library installation.');
+        }
+
+        const data = await pdfParser(buffer);
         console.log(`Extracted ${data?.text?.length || 0} characters using pdf-parse`);
         return data?.text || '';
     } catch (error) {

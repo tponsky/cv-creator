@@ -64,6 +64,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [cvMessage, setCvMessage] = useState('');
     const [cvError, setCvError] = useState('');
     const [cvResult, setCvResult] = useState<CVImportResult | null>(null);
+    const [cvChunkProgress, setCvChunkProgress] = useState<{ current: number; total: number } | null>(null);
     const [dragActive, setDragActive] = useState(false);
     const [cvUploadExpanded, setCvUploadExpanded] = useState(false);
     const [hasExistingEntries, setHasExistingEntries] = useState(false);
@@ -242,24 +243,53 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         setCvError('');
         setCvMessage('');
         setCvResult(null);
+        setCvChunkProgress(null);
 
         try {
+            // STEP 1: Analyze & Split (Quick)
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await fetch('/api/import/cv', {
+            setCvMessage('Preparing CV...');
+            const analyzeRes = await fetch('/api/import/cv/analyze', {
                 method: 'POST',
                 body: formData,
             });
-            const data = await response.json();
+            const analyzeData = await analyzeRes.json();
 
-            if (!response.ok) {
-                throw new Error(data.error || 'Upload failed');
+            if (!analyzeRes.ok) {
+                throw new Error(analyzeData.error || 'Preparation failed');
             }
 
-            setCvMessage(data.message);
-            setCvResult(data);
-            setHasExistingEntries(true); // CV was just uploaded
+            const { chunks, chunkCount } = analyzeData;
+            setCvChunkProgress({ current: 0, total: chunkCount });
+
+            // STEP 2: Process Chunks Sequentially
+            let totalCreated = 0;
+            for (let i = 0; i < chunks.length; i++) {
+                setCvChunkProgress({ current: i + 1, total: chunkCount });
+                setCvMessage(`Analyzing section ${i + 1} of ${chunkCount}...`);
+
+                const processRes = await fetch('/api/import/cv/process-chunk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chunkText: chunks[i],
+                        chunkIndex: i,
+                        totalChunks: chunkCount
+                    }),
+                });
+                const processData = await processRes.json();
+
+                if (!processRes.ok) {
+                    throw new Error(processData.error || `Failed to process section ${i + 1}`);
+                }
+                totalCreated += processData.createdCount;
+            }
+
+            // SUCCESS
+            setCvMessage(`Successfully imported ${totalCreated} new entries!`);
+            setHasExistingEntries(true);
 
             // Auto-advance if in wizard (with delay to show success)
             if (wizardStep === 2) {
@@ -269,9 +299,11 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 }, 1500);
             }
         } catch (err) {
+            console.error('Upload flow error:', err);
             setCvError(err instanceof Error ? err.message : 'Upload failed');
         } finally {
             setCvUploading(false);
+            setCvChunkProgress(null);
         }
     };
 
@@ -705,8 +737,20 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 {cvUploading ? (
                                     <div className="py-12">
                                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-                                        <p className="text-lg">Analyzing your CV...</p>
-                                        <p className="text-sm text-muted-foreground">This uses AI and may take a minute.</p>
+                                        <p className="text-xl font-medium mb-1">{cvMessage}</p>
+                                        {cvChunkProgress && (
+                                            <div className="max-w-xs mx-auto mt-4">
+                                                <div className="flex justify-between text-sm mb-1">
+                                                    <span>Analyzing...</span>
+                                                    <span>{Math.round((cvChunkProgress.current / cvChunkProgress.total) * 100)}%</span>
+                                                </div>
+                                                <div className="h-2 w-full bg-border rounded-full overflow-hidden">
+                                                    <div className="h-full bg-primary transition-all duration-500" style={{ width: `${(cvChunkProgress.current / cvChunkProgress.total) * 100}%` }} />
+                                                </div>
+                                                <p className="text-xs text-muted-foreground mt-2">Section {cvChunkProgress.current} of {cvChunkProgress.total}</p>
+                                            </div>
+                                        )}
+                                        <p className="text-sm text-muted-foreground mt-4 italic">This uses AI and may take a moment per section.</p>
                                     </div>
                                 ) : hasExistingEntries ? (
                                     <div className="py-8">
@@ -1102,15 +1146,29 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 />
 
                                 {cvUploading ? (
-                                    <div className="flex flex-col items-center py-4">
+                                    <div className="flex flex-col items-center py-8">
                                         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500/30 border-t-primary-500 mb-4"></div>
-                                        <h3 className="text-lg font-semibold mb-2">Processing Your CV...</h3>
-                                        <p className="text-muted-foreground text-center max-w-md">
-                                            Our AI is extracting your experiences, publications, and achievements.
-                                        </p>
-                                        <div className="mt-4 p-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-sm">
-                                            <p className="text-primary-400 font-medium">⏱️ This typically takes 2-3 minutes for large CVs</p>
-                                            <p className="text-muted-foreground mt-1">Please don&apos;t close this page. We&apos;re working on it!</p>
+                                        <h3 className="text-xl font-bold mb-1">{cvMessage}</h3>
+
+                                        {cvChunkProgress && (
+                                            <div className="w-full max-w-sm mt-4 px-4">
+                                                <div className="flex justify-between text-sm mb-2">
+                                                    <span className="text-muted-foreground">Analyzing sections...</span>
+                                                    <span className="font-medium text-primary-400">{Math.round((cvChunkProgress.current / cvChunkProgress.total) * 100)}%</span>
+                                                </div>
+                                                <div className="h-2.5 w-full bg-border rounded-full overflow-hidden shadow-inner">
+                                                    <div className="h-full bg-gradient-to-r from-primary-600 to-primary-400 transition-all duration-500" style={{ width: `${(cvChunkProgress.current / cvChunkProgress.total) * 100}%` }} />
+                                                </div>
+                                                <div className="flex justify-between items-center mt-3">
+                                                    <p className="text-xs text-muted-foreground">Processing section {cvChunkProgress.current} of {cvChunkProgress.total}</p>
+                                                    <p className="text-[10px] text-muted-foreground bg-primary-500/10 px-2 py-0.5 rounded-full border border-primary-500/20">AI Enhanced</p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="mt-8 p-4 rounded-xl bg-primary-500/5 border border-primary-500/10 text-center max-w-md">
+                                            <p className="text-sm text-primary-400 font-medium mb-1">⏱️ Estimated Time: 15s per section</p>
+                                            <p className="text-[11px] text-muted-foreground italic">Powered by GPT-4o-mini for speed and accuracy</p>
                                         </div>
                                     </div>
                                 ) : (

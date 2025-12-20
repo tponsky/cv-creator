@@ -305,10 +305,15 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                             setCvMessage(`Successfully imported ${createdCount} new entries!`);
                             setHasExistingEntries(true);
 
-                            if (wizardStep === 2) {
-                                setCvMessage('CV ADDED SUCCESSFULLY!');
-                                setTimeout(() => setWizardStep(3), 1500);
-                            }
+                            // Auto-advance if in wizard mode
+                            setWizardStep(prev => {
+                                if (prev === 2) {
+                                    setCvMessage('CV ADDED SUCCESSFULLY!');
+                                    setTimeout(() => setWizardStep(3), 1500);
+                                    return prev;
+                                }
+                                return prev;
+                            });
                         } else {
                             setCvError(statusData.failedReason || 'Processing failed');
                         }

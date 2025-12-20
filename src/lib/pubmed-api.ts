@@ -25,13 +25,19 @@ export interface PubMedSearchResult {
  * Search PubMed for articles by author name
  */
 export async function searchPubMed(
-    authorName: string,
-    maxResults: number = 100
+    query: string,
+    maxResults: number = 100,
+    searchType: 'author' | 'title' | 'all' = 'author'
 ): Promise<string[]> {
-    // Format author name for PubMed search (Last FM format)
-    const formattedAuthor = authorName.trim();
+    // Format query for PubMed search
+    let term = query.trim();
+    if (searchType === 'author') {
+        term = `${term}[Author]`;
+    } else if (searchType === 'title') {
+        term = `${term}[Title]`;
+    }
 
-    const searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(formattedAuthor)}[Author]&retmax=${maxResults}&retmode=json`;
+    const searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(term)}&retmax=${maxResults}&retmode=json`;
 
     const response = await fetch(searchUrl);
     if (!response.ok) {
@@ -142,10 +148,11 @@ function decodeXmlEntities(text: string): string {
  * Full search and fetch - returns complete article data
  */
 export async function searchAndFetchArticles(
-    authorName: string,
-    maxResults: number = 100
+    query: string,
+    maxResults: number = 100,
+    searchType: 'author' | 'title' | 'all' = 'author'
 ): Promise<PubMedSearchResult> {
-    const pmids = await searchPubMed(authorName, maxResults);
+    const pmids = await searchPubMed(query, maxResults, searchType);
     const articles = await fetchArticleDetails(pmids);
 
     return {

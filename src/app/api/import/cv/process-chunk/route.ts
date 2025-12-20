@@ -68,8 +68,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // DEDUPLICATION LOOKUP
-        // To be safe, we query existing titles for this user's CV
+        // BATCH DEDUPLICATION LOOKUP
         const existingEntries = await prisma.entry.findMany({
             where: { category: { cvId: cv.id } },
             select: { title: true },
@@ -78,33 +77,48 @@ export async function POST(request: NextRequest) {
         const normalizeTitle = (title: string) => title.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
         const existingTitles = new Set(existingEntries.map(e => normalizeTitle(e.title)));
 
+        // PRE-FETCH CATEGORIES for this CV to avoid repeated lookups
+        const cvCategories = await prisma.category.findMany({
+            where: { cvId: cv.id }
+        });
+        const categoryMap = new Map(cvCategories.map(c => [c.name.toLowerCase(), c]));
+
         let createdCount = 0;
 
-        // Save to DB
+        // Process each category from AI response
         for (const parsedCategory of parsedChunk.categories) {
-            // Find or create category
-            let category = await prisma.category.findFirst({
-                where: {
-                    cvId: cv.id,
-                    name: { equals: parsedCategory.name, mode: 'insensitive' },
-                },
-            });
+            const catNameLower = parsedCategory.name.toLowerCase();
+            let category = categoryMap.get(catNameLower);
 
             if (!category) {
-                const maxOrder = await prisma.category.findFirst({
+                // Determine display order for new category
+                const maxOrderObj = await prisma.category.findFirst({
                     where: { cvId: cv.id },
                     orderBy: { displayOrder: 'desc' },
                     select: { displayOrder: true },
                 });
+                const nextCatOrder = (maxOrderObj?.displayOrder ?? -1) + 1;
+
                 category = await prisma.category.create({
                     data: {
                         cvId: cv.id,
                         name: parsedCategory.name,
-                        displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
+                        displayOrder: nextCatOrder,
                     },
                 });
+                categoryMap.set(catNameLower, category);
             }
 
+            // Get current max display order for this category ONCE
+            const maxEntryOrderObj = await prisma.entry.findFirst({
+                where: { categoryId: category.id },
+                orderBy: { displayOrder: 'desc' },
+                select: { displayOrder: true },
+            });
+            let currentDisplayOrder = (maxEntryOrderObj?.displayOrder ?? -1) + 1;
+
+            // Sequential creation to maintain order and simplify deduplication per chunk
+            // Improved: We still do sequential but avoid redundant maxOrder lookups
             for (const entry of parsedCategory.entries) {
                 const normalizedNewTitle = normalizeTitle(entry.title);
                 if (existingTitles.has(normalizedNewTitle)) {
@@ -113,16 +127,9 @@ export async function POST(request: NextRequest) {
 
                 existingTitles.add(normalizedNewTitle);
 
-                const maxEntryOrder = await prisma.entry.findFirst({
-                    where: { categoryId: category.id },
-                    orderBy: { displayOrder: 'desc' },
-                    select: { displayOrder: true },
-                });
-                const nextOrder = (maxEntryOrder?.displayOrder ?? -1) + 1;
-
                 await prisma.entry.create({
                     data: {
-                        categoryId: category.id,
+                        categoryId: category!.id,
                         title: entry.title,
                         description: entry.description,
                         date: parseDate(entry.date),
@@ -134,7 +141,7 @@ export async function POST(request: NextRequest) {
                             chunkIndex,
                             importedAt: new Date().toISOString(),
                         },
-                        displayOrder: nextOrder,
+                        displayOrder: currentDisplayOrder++,
                     },
                 });
                 createdCount++;

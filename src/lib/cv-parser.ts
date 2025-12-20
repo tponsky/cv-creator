@@ -6,7 +6,7 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // For very long CVs, process in chunks to avoid response truncation
-export const CHUNK_SIZE = 15000; // Characters per chunk (conservative for token limits)
+export const CHUNK_SIZE = 6000; // Reduced from 15k to ensure faster AI processing
 
 export interface ParsedCategory {
     name: string;

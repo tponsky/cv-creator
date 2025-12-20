@@ -5,6 +5,9 @@
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// For very long CVs, process in chunks to avoid response truncation
+export const CHUNK_SIZE = 15000; // Characters per chunk (conservative for token limits)
+
 export interface ParsedCategory {
     name: string;
     entries: ParsedEntry[];
@@ -106,9 +109,6 @@ export async function parseCV(text: string): Promise<ParsedCV> {
     if (!OPENAI_API_KEY) {
         throw new Error('OPENAI_API_KEY is not configured');
     }
-
-    // For very long CVs, process in chunks to avoid response truncation
-    const CHUNK_SIZE = 15000; // Characters per chunk (conservative for token limits)
 
     if (text.length <= CHUNK_SIZE) {
         // Short CV - process in one go
@@ -218,7 +218,7 @@ export async function parseCV(text: string): Promise<ParsedCV> {
 }
 
 // Helper function to split large text
-function splitLargeText(text: string, maxSize: number): string[] {
+export function splitLargeText(text: string, maxSize: number): string[] {
     const chunks: string[] = [];
     let start = 0;
     while (start < text.length) {
@@ -235,7 +235,7 @@ function splitLargeText(text: string, maxSize: number): string[] {
 }
 
 // Parse a single chunk of CV text
-async function parseCVChunk(text: string): Promise<ParsedCV> {
+export async function parseCVChunk(text: string): Promise<ParsedCV> {
     const userPrompt = `Parse the following CV section and extract all entries. Return ONLY the sections that are present in this text:
 
 ${text}`;

@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-
-// Get first user (demo mode - no auth)
-async function getDemoUser() {
-    return await prisma.user.findFirst();
-}
+import { getUserFromRequest } from '@/lib/server-auth';
 
 // GET all entries (optionally filtered by category)
 export async function GET(request: NextRequest) {
-    const user = await getDemoUser();
+    const user = await getUserFromRequest(request);
     if (!user) {
-        return NextResponse.json({ error: 'No user found' }, { status: 404 });
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -36,9 +32,9 @@ export async function GET(request: NextRequest) {
 
 // POST create a new entry
 export async function POST(request: NextRequest) {
-    const user = await getDemoUser();
+    const user = await getUserFromRequest(request);
     if (!user) {
-        return NextResponse.json({ error: 'No user found' }, { status: 404 });
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { categoryId, title, description, date, endDate, location, url, sourceType, sourceData } = await request.json();

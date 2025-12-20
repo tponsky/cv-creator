@@ -198,4 +198,6 @@ const worker = new Worker(
     }
 );
 
+console.log(`[Worker] CV processing worker started and listening for jobs...`);
+
 export default worker;

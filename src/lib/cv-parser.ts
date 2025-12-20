@@ -171,17 +171,24 @@ export async function parseCV(text: string): Promise<ParsedCV> {
 
     console.log(`Split CV into ${chunks.length} chunks`);
 
-    // Process all chunks in PARALLEL for speed (avoid timeout)
-    console.log(`Processing ${chunks.length} chunks in parallel...`);
+    // Process all chunks SEQUENTIALLY to prevent 502 Proxy Errors/timeouts
+    console.log(`Processing ${chunks.length} chunks sequentially...`);
 
-    const chunkPromises = chunks.map((chunk, i) =>
-        parseCVChunk(chunk).catch(error => {
+    const results: ParsedCV[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+        console.log(`Processing chunk ${i + 1} of ${chunks.length}...`);
+        try {
+            const result = await parseCVChunk(chunks[i]);
+            results.push(result);
+        } catch (error) {
             console.error(`Error processing chunk ${i + 1}:`, error);
-            return { profile: { name: null, email: null, phone: null, address: null, institution: null, website: null }, categories: [], rawText: chunk };
-        })
-    );
-
-    const results = await Promise.all(chunkPromises);
+            results.push({
+                profile: { name: null, email: null, phone: null, address: null, institution: null, website: null },
+                categories: [],
+                rawText: chunks[i]
+            });
+        }
+    }
 
     // Merge all results
     const allCategories: ParsedCategory[] = [];
@@ -282,18 +289,15 @@ ${text}`;
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     try {
-        // unpdf is a serverless-friendly PDF library
-        const { extractText } = await import('unpdf');
-
-        // Extract text from the PDF (unpdf requires Uint8Array)
-        const uint8Array = new Uint8Array(buffer);
-        const result = await extractText(uint8Array);
-
-        // Join all text content (result.text is string[])
-        const text = result.text;
-        return Array.isArray(text) ? text.join('\n') : (text || '');
+        const pdfModule = await import('pdf-parse');
+        // Handle both ES and CommonJS modules
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const parsePDF = (pdfModule as any).default || pdfModule;
+        const data = await parsePDF(buffer);
+        console.log(`Extracted ${data?.text?.length || 0} characters using pdf-parse`);
+        return data?.text || '';
     } catch (error) {
-        console.error('PDF parsing failed:', error);
+        console.error('PDF parsing failed with pdf-parse:', error);
         throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}. Please try uploading a Word (.docx) document instead.`);
     }
 }

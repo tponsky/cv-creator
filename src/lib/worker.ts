@@ -161,11 +161,36 @@ const worker = new Worker(
                     });
                     let currentDisplayOrder = (maxEntryOrderObj?.displayOrder ?? -1) + 1;
 
-                    // Basic date parsing helper
+                    // Advanced date parsing helper to handle various GPT formats
                     const parseDate = (d: string | null) => {
                         if (!d) return null;
-                        const date = new Date(d);
-                        return isNaN(date.getTime()) ? null : date;
+                        const dateStr = d.trim();
+
+                        // Try native Date first
+                        const nativeDate = new Date(dateStr);
+                        if (!isNaN(nativeDate.getTime())) return nativeDate;
+
+                        // Try to extract year-only or month-year if native fails
+                        // GPT sometimes gives "2024" or "May 2024"
+                        const yearMatch = dateStr.match(/\b(19|20)\d{2}\b/);
+                        if (yearMatch) {
+                            const year = parseInt(yearMatch[0]);
+                            const monthMap: Record<string, number> = {
+                                'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+                                'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+                            };
+
+                            const lowerStr = dateStr.toLowerCase();
+                            let month = 0;
+                            for (const [m, i] of Object.entries(monthMap)) {
+                                if (lowerStr.includes(m)) {
+                                    month = i;
+                                    break;
+                                }
+                            }
+                            return new Date(year, month, 1);
+                        }
+                        return null;
                     };
 
                     for (const entry of parsedCat.entries) {

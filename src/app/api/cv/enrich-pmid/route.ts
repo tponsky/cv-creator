@@ -162,8 +162,8 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: 'title is required' }, { status: 400 });
         }
 
-        // Search PubMed by title
-        const searchResult = await searchAndFetchArticles(title, 5);
+        // Search PubMed by title specifically
+        const searchResult = await searchAndFetchArticles(title, 5, 'title');
 
         return NextResponse.json({
             results: searchResult.articles.map(r => ({

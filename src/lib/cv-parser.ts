@@ -234,52 +234,62 @@ export function splitLargeText(text: string, maxSize: number): string[] {
     return chunks;
 }
 
-// Parse a single chunk of CV text
-export async function parseCVChunk(text: string): Promise<ParsedCV> {
-    const userPrompt = `Parse the following CV section and extract all entries. Return ONLY the sections that are present in this text:
+// Parse a single chunk of CV text with retry logic
+export async function parseCVChunk(text: string, attempt: number = 1): Promise<ParsedCV> {
+    try {
+        const userPrompt = `Parse the following CV section and extract all entries. Return ONLY the sections that are present in this text:
 
 ${text}`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini', // Use mini for faster responses on chunks
-            messages: [
-                { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.2,
-            max_tokens: 8000, // Smaller response per chunk
-            response_format: { type: 'json_object' },
-        }),
-    });
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: SYSTEM_PROMPT },
+                    { role: 'user', content: userPrompt },
+                ],
+                temperature: 0.2,
+                max_tokens: 8000,
+                response_format: { type: 'json_object' },
+            }),
+        });
 
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${error}`);
-    }
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`OpenAI API error: ${error}`);
+        }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{"categories":[]}';
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || '{"categories":[]}';
 
-    try {
-        const parsed = JSON.parse(content);
-        return {
-            profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
-            categories: parsed.categories || [],
-            rawText: text,
-        };
-    } catch (e) {
-        console.error('Failed to parse CV chunk response:', content.slice(0, 500), e);
-        return {
-            profile: { name: null, email: null, phone: null, address: null, institution: null, website: null },
-            categories: [],
-            rawText: text,
-        };
+        try {
+            const parsed = JSON.parse(content);
+            return {
+                profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
+                categories: parsed.categories || [],
+                rawText: text,
+            };
+        } catch (e) {
+            if (attempt < 2) {
+                console.warn(`JSON parse failed for chunk (attempt ${attempt}), retrying...`, e);
+                return parseCVChunk(text, attempt + 1);
+            }
+            console.error('Failed to parse CV chunk after retries:', content.slice(0, 500), e);
+            throw e;
+        }
+    } catch (error) {
+        if (attempt < 2) {
+            console.warn(`Fetch or processing failed (attempt ${attempt}), retrying...`, error);
+            // Wait a bit before retry
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return parseCVChunk(text, attempt + 1);
+        }
+        throw error;
     }
 }
 

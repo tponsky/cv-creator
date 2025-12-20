@@ -263,19 +263,28 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             const { jobId } = uploadData;
             setCvMessage('Processing CV in background...');
 
-            // Polling for status
+            let retryCount = 0;
             const pollInterval = setInterval(async () => {
                 try {
                     const statusRes = await fetch(`/api/import/cv/status/${jobId}`);
-                    const statusData = await statusRes.json();
 
                     if (!statusRes.ok) {
-                        clearInterval(pollInterval);
-                        console.error('Status poll failed:', statusData);
-                        setCvError(statusData.error || 'Failed to check status');
-                        setCvUploading(false);
-                        return;
+                        const errorData = await statusRes.json().catch(() => ({}));
+
+                        // If job is not found, maybe it just finished and was cleaned up (though we increased age)
+                        // or it's a transient Redis issue. Try a couple more times.
+                        if (statusRes.status === 404) {
+                            console.warn('Job not found in poll, retrying...', jobId);
+                            if (retryCount < 5) {
+                                retryCount++;
+                                return;
+                            }
+                        }
+                        throw new Error(errorData.error || 'Failed to check status');
                     }
+
+                    const statusData = await statusRes.json();
+                    retryCount = 0; // Reset on success
 
                     // Update progress
                     if (statusData.progress !== undefined) {

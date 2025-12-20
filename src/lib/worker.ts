@@ -58,13 +58,13 @@ const worker = new Worker(
             // OpenAI handles ~128k tokens, but we keep a buffer. 100k chars is very safe (~25k tokens).
             let parsedResults: ParsedCV[] = [];
 
-            if (text.length < 100000) {
+            if (text.length < 30000) {
                 console.log(`[Worker] Processing entire CV in one call`);
                 const result = await parseCVChunk(text);
                 parsedResults = [result];
             } else {
-                console.log(`[Worker] CV is very large. Implementing smart section-aware chunking.`);
-                const chunks = splitBySections(text, 60000); // 60k chars per chunk for safety
+                console.log(`[Worker] CV is large (${text.length} chars). Using granular section-aware chunking.`);
+                const chunks = splitBySections(text, 25000); // 25k chars per chunk for maximum yield and safety
                 console.log(`[Worker] Split into ${chunks.length} smart chunks`);
 
                 // Process in parallel with controlled concurrency if needed, but for now Promise.all
@@ -110,13 +110,21 @@ const worker = new Worker(
             });
             const categoryMap = new Map(currentCategories.map(c => [c.name.toLowerCase(), c.id]));
 
-            // Pre-fetch existing entry titles for deduplication within the current CV
+            // Pre-fetch existing entries to create robust deduplication keys
             const existingEntries = await prisma.entry.findMany({
                 where: { category: { cvId: cv.id } },
-                select: { title: true },
+                select: { title: true, date: true, description: true },
             });
-            const normalizeTitle = (t: string) => t.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
-            const existingTitles = new Set(existingEntries.map(e => normalizeTitle(e.title)));
+
+            const createEntryKey = (title: string, date: Date | null, description: string | null) => {
+                const t = title.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
+                const d = date ? date.toISOString().split('T')[0] : 'nodate';
+                // Use a snippet of description to differentiate entries with same title/date
+                const desc = (description || '').toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 50);
+                return `${t}|${d}|${desc}`;
+            };
+
+            const existingKeys = new Set(existingEntries.map(e => createEntryKey(e.title, e.date, e.description)));
 
             let createdCount = 0;
 
@@ -153,25 +161,27 @@ const worker = new Worker(
                     });
                     let currentDisplayOrder = (maxEntryOrderObj?.displayOrder ?? -1) + 1;
 
+                    // Basic date parsing helper
+                    const parseDate = (d: string | null) => {
+                        if (!d) return null;
+                        const date = new Date(d);
+                        return isNaN(date.getTime()) ? null : date;
+                    };
+
                     for (const entry of parsedCat.entries) {
-                        const normalizedTitle = normalizeTitle(entry.title);
-                        if (existingTitles.has(normalizedTitle)) continue;
+                        const entryDate = parseDate(entry.date);
+                        const entryKey = createEntryKey(entry.title, entryDate, entry.description);
 
-                        existingTitles.add(normalizedTitle);
+                        if (existingKeys.has(entryKey)) continue;
 
-                        // Basic date parsing helper
-                        const parseDate = (d: string | null) => {
-                            if (!d) return null;
-                            const date = new Date(d);
-                            return isNaN(date.getTime()) ? null : date;
-                        };
+                        existingKeys.add(entryKey);
 
                         await prisma.entry.create({
                             data: {
                                 categoryId,
                                 title: entry.title,
                                 description: entry.description,
-                                date: parseDate(entry.date),
+                                date: entryDate,
                                 location: entry.location,
                                 url: entry.url,
                                 sourceType: 'cv-import',

@@ -103,7 +103,7 @@ Return your response as a JSON object with this structure:
   ]
 }
 
-Parse ALL entries you can find. Be thorough. ALWAYS extract dates when any year is visible. Return ONLY valid JSON.`;
+Parse ALL entries you can find in the provided text. Do not summarize or skip any items. Be extremely thorough. ALWAYS extract dates/years when any year is visible. Your response must be a complete and valid JSON object.`;
 
 export async function parseCV(text: string): Promise<ParsedCV> {
     if (!OPENAI_API_KEY) {
@@ -254,7 +254,7 @@ ${text}`;
                     { role: 'user', content: userPrompt },
                 ],
                 temperature: 0.2,
-                max_tokens: 8000,
+                max_tokens: 12000, // Increased to prevent truncation for dense CVs
                 response_format: { type: 'json_object' },
             }),
         });

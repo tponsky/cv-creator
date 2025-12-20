@@ -36,7 +36,7 @@ export interface ParsedCV {
     rawText: string;
 }
 
-const SYSTEM_PROMPT = `You are an expert CV parser. Your job is to analyze CV/resume text and extract it into structured data.
+export const SYSTEM_PROMPT = `You are an expert CV parser. Your job is to analyze CV/resume text and extract it into structured data.
 
 FIRST, extract the person's contact/profile information from the header:
 - name: Full name of the person

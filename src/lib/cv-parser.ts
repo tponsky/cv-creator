@@ -289,9 +289,18 @@ ${text}`;
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     try {
-        const pdfModule = await import('pdf-parse');
+        // Bypass the faulty index.js in pdf-parse which triggers a debug mode 
+        // that tries to read non-existent test files when bundled.
+        let pdfModule;
+        try {
+            // @ts-expect-error - Direct lib import to bypass index.js bug that triggers ENOENT on test files
+            pdfModule = await import('pdf-parse/lib/pdf-parse.js');
+        } catch {
+            console.warn('Direct lib import failed, falling back to main entry point');
+            pdfModule = await import('pdf-parse');
+        }
+
         // Classic pdf-parse is a function exported via module.exports
-        // In ESM import, it might be in .default or the module itself
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pdfParser = (pdfModule as any).default || pdfModule;
 

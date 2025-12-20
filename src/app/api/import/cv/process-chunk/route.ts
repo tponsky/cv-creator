@@ -19,6 +19,7 @@ function parseDate(dateStr: string | null | undefined): Date | null {
  * Processes a single chunk of CV text: AI Parse -> Save to DB
  */
 export async function POST(request: NextRequest) {
+    const startTime = Date.now();
     try {
         const { chunkText, chunkIndex, totalChunks } = await request.json();
 
@@ -26,13 +27,13 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'No chunk text provided' }, { status: 400 });
         }
 
-        // Validate user
         const user = await getUserFromRequest(request);
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Get or create CV
+        console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] START processing for user ${user.id}`);
+
         let cv = await prisma.cV.findUnique({
             where: { userId: user.id },
         });
@@ -46,12 +47,12 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        console.log(`Processing chunk ${chunkIndex + 1}/${totalChunks} for user ${user.id}`);
-
         // AI Parse
+        const parseStartTime = Date.now();
         const parsedChunk = await parseCVChunk(chunkText);
+        console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] AI Parse took ${Date.now() - parseStartTime}ms`);
 
-        // AUTO-POPULATE PROFILE (usually on first chunk)
+        // Profile Update (First chunk only)
         if (chunkIndex === 0 && parsedChunk.profile) {
             const profileUpdate: Record<string, string | null> = {};
             if (parsedChunk.profile.name) profileUpdate.name = parsedChunk.profile.name;
@@ -68,30 +69,30 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // BATCH DEDUPLICATION LOOKUP
+        // DB SAVING STRATEGY: 
+        // 1. Fetch all existing category names for this CV
+        const cvCategories = await prisma.category.findMany({
+            where: { cvId: cv.id },
+            select: { id: true, name: true }
+        });
+        const categoryMap = new Map(cvCategories.map(c => [c.name.toLowerCase(), c.id]));
+
+        // 2. Fetch all existing titles for deduplication (only for the current CV)
         const existingEntries = await prisma.entry.findMany({
             where: { category: { cvId: cv.id } },
             select: { title: true },
         });
-
         const normalizeTitle = (title: string) => title.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
         const existingTitles = new Set(existingEntries.map(e => normalizeTitle(e.title)));
 
-        // PRE-FETCH CATEGORIES for this CV to avoid repeated lookups
-        const cvCategories = await prisma.category.findMany({
-            where: { cvId: cv.id }
-        });
-        const categoryMap = new Map(cvCategories.map(c => [c.name.toLowerCase(), c]));
-
         let createdCount = 0;
 
-        // Process each category from AI response
+        // 3. Process each category
         for (const parsedCategory of parsedChunk.categories) {
             const catNameLower = parsedCategory.name.toLowerCase();
-            let category = categoryMap.get(catNameLower);
+            let categoryId = categoryMap.get(catNameLower);
 
-            if (!category) {
-                // Determine display order for new category
+            if (!categoryId) {
                 const maxOrderObj = await prisma.category.findFirst({
                     where: { cvId: cv.id },
                     orderBy: { displayOrder: 'desc' },
@@ -99,37 +100,35 @@ export async function POST(request: NextRequest) {
                 });
                 const nextCatOrder = (maxOrderObj?.displayOrder ?? -1) + 1;
 
-                category = await prisma.category.create({
+                const newCat = await prisma.category.create({
                     data: {
                         cvId: cv.id,
                         name: parsedCategory.name,
                         displayOrder: nextCatOrder,
                     },
                 });
-                categoryMap.set(catNameLower, category);
+                categoryId = newCat.id;
+                categoryMap.set(catNameLower, categoryId);
             }
 
-            // Get current max display order for this category ONCE
+            // Get current max display order for this category
             const maxEntryOrderObj = await prisma.entry.findFirst({
-                where: { categoryId: category.id },
+                where: { categoryId },
                 orderBy: { displayOrder: 'desc' },
                 select: { displayOrder: true },
             });
             let currentDisplayOrder = (maxEntryOrderObj?.displayOrder ?? -1) + 1;
 
-            // Sequential creation to maintain order and simplify deduplication per chunk
-            // Improved: We still do sequential but avoid redundant maxOrder lookups
+            // Create entries
             for (const entry of parsedCategory.entries) {
                 const normalizedNewTitle = normalizeTitle(entry.title);
-                if (existingTitles.has(normalizedNewTitle)) {
-                    continue;
-                }
+                if (existingTitles.has(normalizedNewTitle)) continue;
 
                 existingTitles.add(normalizedNewTitle);
 
                 await prisma.entry.create({
                     data: {
-                        categoryId: category!.id,
+                        categoryId,
                         title: entry.title,
                         description: entry.description,
                         date: parseDate(entry.date),
@@ -148,6 +147,8 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] FINISHED. Created ${createdCount} entries. Total time: ${Date.now() - startTime}ms`);
+
         return NextResponse.json({
             success: true,
             createdCount,
@@ -155,7 +156,7 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error('Chunk processing error:', error);
+        console.error(`[Chunk] error:`, error);
         return NextResponse.json({ error: String(error) }, { status: 500 });
     }
 }

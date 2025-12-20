@@ -61,8 +61,9 @@ IMPORTANT DATE EXTRACTION:
 - Publications usually have years like "2024" or "Jan 2024"
 - Date ranges like "2018-2022" → use the END date (2022)
 - "Present" or "Current" entries → use start date, leave end as null
-- Role dates like "July 2020 - Present" → extract "2020-07"
-- Even if date appears in description text, STILL extract it to the date field
+- "Role dates like "July 2020 - Present" → extract "2020-07"
+- Even if date appears in description text or after a journal name, STILL extract it to the date field.
+- EXTREMELY IMPORTANT: Almost every CV entry has a year. If you see any number that looks like a year (1990-2025), extract it.
 
 Common CV sections to look for:
 - Publications (peer-reviewed articles, books, chapters)
@@ -103,7 +104,7 @@ Return your response as a JSON object with this structure:
   ]
 }
 
-Parse ALL entries you can find in the provided text. Do not summarize or skip any items. Be extremely thorough. ALWAYS extract dates/years when any year is visible. Your response must be a complete and valid JSON object.`;
+Parse ALL entries you can find in the provided text. Do not summarize or skip any items. Be extremely thorough. ALWAYS extract dates/years when any year is visible. If an entry has no date but the one above it does, look closer for a date. Your response must be a complete and valid JSON object.`;
 
 export async function parseCV(text: string): Promise<ParsedCV> {
     if (!OPENAI_API_KEY) {

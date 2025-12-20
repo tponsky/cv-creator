@@ -211,6 +211,13 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         checkExistingEntries();
     }, []);
 
+    // Auto-trigger scan if we just entered Step 3 of the wizard
+    useEffect(() => {
+        if (wizardStep === 3 && !pmidStats && !pmidLoading) {
+            fetchPmidEntries();
+        }
+    }, [wizardStep]);
+
     // CV Upload handlers
     const handleDrag = (e: React.DragEvent) => {
         e.preventDefault();
@@ -308,12 +315,14 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                             // Auto-advance if in wizard mode
                             setWizardStep(prev => {
                                 if (prev === 2) {
-                                    setCvMessage('CV ADDED SUCCESSFULLY!');
-                                    setTimeout(() => setWizardStep(3), 1500);
-                                    return prev;
+                                    // Set message immediately if possible, but the setter is safer outside
+                                    return 3;
                                 }
                                 return prev;
                             });
+                            if (wizardStep === 2) {
+                                setCvMessage('CV ADDED SUCCESSFULLY!');
+                            }
                         } else {
                             setCvError(statusData.failedReason || 'Processing failed');
                         }
@@ -585,6 +594,11 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     withPmid: prev.withPmid + chunkSuccess,
                     withoutPmid: prev.withoutPmid - chunkSuccess,
                 }) : null);
+            }
+
+            // Small delay to respect PubMed rate limits (3 requests/sec)
+            if (i + chunkSize < entriesToProcess.length) {
+                await new Promise(r => setTimeout(r, 800));
             }
         }
 

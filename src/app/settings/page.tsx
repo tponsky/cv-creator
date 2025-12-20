@@ -270,21 +270,37 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 setCvChunkProgress({ current: i + 1, total: chunkCount });
                 setCvMessage(`Analyzing section ${i + 1} of ${chunkCount}...`);
 
-                const processRes = await fetch('/api/import/cv/process-chunk', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chunkText: chunks[i],
-                        chunkIndex: i,
-                        totalChunks: chunkCount
-                    }),
-                });
-                const processData = await processRes.json();
+                try {
+                    const processRes = await fetch('/api/import/cv/process-chunk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chunkText: chunks[i],
+                            chunkIndex: i,
+                            totalChunks: chunkCount
+                        }),
+                    });
 
-                if (!processRes.ok) {
-                    throw new Error(processData.error || `Failed to process section ${i + 1}`);
+                    // Safeguard: Check if response is JSON before parsing
+                    const contentType = processRes.headers.get("content-type");
+                    if (!processRes.ok || !contentType || !contentType.includes("application/json")) {
+                        const errorText = await processRes.text();
+                        console.error(`Error in section ${i + 1}:`, {
+                            status: processRes.status,
+                            statusText: processRes.statusText,
+                            body: errorText.slice(0, 500)
+                        });
+                        throw new Error(processRes.status === 502
+                            ? `Section ${i + 1} analysis timed out. Our AI is taking longer than usual.`
+                            : `Error in section ${i + 1}. Please try again.`);
+                    }
+
+                    const processData = await processRes.json();
+                    totalCreated += processData.createdCount;
+                } catch (chunkErr) {
+                    console.error(`Chunk ${i + 1} failed:`, chunkErr);
+                    throw chunkErr; // Re-throw to be caught by the outer try-catch
                 }
-                totalCreated += processData.createdCount;
             }
 
             // SUCCESS
@@ -299,7 +315,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                 }, 1500);
             }
         } catch (err) {
-            console.error('Upload flow error:', err);
+            console.error('Upload flow fail:', err);
             setCvError(err instanceof Error ? err.message : 'Upload failed');
         } finally {
             setCvUploading(false);

@@ -324,48 +324,71 @@ async function parseWithClaude(userPrompt: string, originalText: string): Promis
     });
 
     const msg = await anthropic.messages.create({
-        model: "claude-3-haiku-20240307",
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT + "\nIMPORTANT: Your response must be NOTHING but the valid JSON object.",
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT + "\nIMPORTANT: Your response must be NOTHING but the valid JSON object. No preamble, no explanation.",
         messages: [{ role: "user", content: userPrompt }],
     });
 
     // Handle string content from Claude
     const contentText = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    // Claude often includes some preamble even if told not to, so attempt to extract JSON
-    const jsonMatch = contentText.match(/\{[\s\S]*\}/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : contentText;
 
-    const parsed = JSON.parse(jsonStr);
-    return {
-        profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
-        categories: parsed.categories || [],
-        rawText: originalText,
-    };
+    // Improved JSON extraction for Claude
+    let jsonStr = contentText.trim();
+    if (jsonStr.includes('```')) {
+        const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (match) jsonStr = match[1];
+    }
+
+    const startIdx = jsonStr.indexOf('{');
+    const endIdx = jsonStr.lastIndexOf('}');
+    if (startIdx !== -1 && endIdx !== -1) {
+        jsonStr = jsonStr.substring(startIdx, endIdx + 1);
+    }
+
+    try {
+        const parsed = JSON.parse(jsonStr);
+        return {
+            profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
+            categories: parsed.categories || [],
+            rawText: originalText,
+        };
+    } catch (e) {
+        console.error('[Parser] Claude JSON parse failed. Content snippet:', contentText.slice(0, 200));
+        throw e;
+    }
 }
 
 async function parseWithGemini(userPrompt: string, originalText: string): Promise<ParsedCV> {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+    // Using gemini-1.5-flash which is widely available and fast
     const model = genAI.getGenerativeModel({
         model: "gemini-1.5-flash",
+        systemInstruction: SYSTEM_PROMPT,
+    });
+
+    const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         generationConfig: {
             responseMimeType: "application/json",
+            temperature: 0.2,
+            maxOutputTokens: 8192,
         }
     });
 
-    const result = await model.generateContent([
-        SYSTEM_PROMPT,
-        userPrompt
-    ]);
-
     const contentText = result.response.text();
-    const parsed = JSON.parse(contentText);
-    return {
-        profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
-        categories: parsed.categories || [],
-        rawText: originalText,
-    };
+    try {
+        const parsed = JSON.parse(contentText);
+        return {
+            profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
+            categories: parsed.categories || [],
+            rawText: originalText,
+        };
+    } catch (e) {
+        console.error('[Parser] Gemini JSON parse failed. Content snippet:', contentText.slice(0, 200));
+        throw e;
+    }
 }
 
 /**

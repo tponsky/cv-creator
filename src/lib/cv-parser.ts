@@ -248,8 +248,9 @@ ${text}`;
         try {
             console.log('[Parser] Trying OpenAI...');
             return await parseWithOpenAI(userPrompt, text);
-        } catch (error: any) {
-            console.warn(`[Parser] OpenAI failed: ${error.message}. Falling back...`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.warn(`[Parser] OpenAI failed: ${errorMessage}. Falling back...`);
             // Continue to fallback
         }
     }
@@ -259,8 +260,9 @@ ${text}`;
         try {
             console.log('[Parser] Trying Anthropic (Claude)...');
             return await parseWithClaude(userPrompt, text);
-        } catch (error: any) {
-            console.warn(`[Parser] Anthropic failed: ${error.message}. Falling back...`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.warn(`[Parser] Anthropic failed: ${errorMessage}. Falling back...`);
             // Continue to fallback
         }
     }
@@ -270,8 +272,9 @@ ${text}`;
         try {
             console.log('[Parser] Trying Google (Gemini)...');
             return await parseWithGemini(userPrompt, text);
-        } catch (error: any) {
-            console.error(`[Parser] Gemini failed: ${error.message}`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[Parser] Gemini failed: ${errorMessage}`);
             // Last resort or throw if all failed
         }
     }

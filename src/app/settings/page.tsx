@@ -211,12 +211,6 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         checkExistingEntries();
     }, []);
 
-    // Auto-trigger scan if we just entered Step 3 of the wizard
-    useEffect(() => {
-        if (wizardStep === 3 && !pmidStats && !pmidLoading) {
-            fetchPmidEntries();
-        }
-    }, [wizardStep]);
 
     // CV Upload handlers
     const handleDrag = (e: React.DragEvent) => {
@@ -491,7 +485,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     };
 
     // PMID enrichment handlers
-    const fetchPmidEntries = async () => {
+    const fetchPmidEntries = useCallback(async () => {
         setPmidLoading(true);
         setPmidEnrichMessage('');
         try {
@@ -513,7 +507,14 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         } finally {
             setPmidLoading(false);
         }
-    };
+    }, [setPmidLoading, setPmidEnrichMessage, setPmidEntries, setSelectedPmidEntries, setPmidStats]);
+
+    // Auto-trigger scan if we just entered Step 3 of the wizard
+    useEffect(() => {
+        if (wizardStep === 3 && !pmidStats && !pmidLoading) {
+            fetchPmidEntries();
+        }
+    }, [wizardStep, pmidStats, pmidLoading, fetchPmidEntries]);
 
     // Batch enrich selected entries
     const batchEnrichPmids = async () => {

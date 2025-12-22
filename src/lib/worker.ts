@@ -58,23 +58,24 @@ const worker = new Worker(
             // OpenAI handles ~128k tokens, but we keep a buffer. 100k chars is very safe (~25k tokens).
             let parsedResults: ParsedCV[] = [];
 
-            if (text.length < 30000) {
+            if (text.length < 15000) {
                 console.log(`[Worker] Processing entire CV in one call`);
                 const result = await parseCVChunk(text);
                 parsedResults = [result];
             } else {
                 console.log(`[Worker] CV is large (${text.length} chars). Using granular section-aware chunking.`);
-                const chunks = splitBySections(text, 25000); // 25k chars per chunk for maximum yield and safety
+                // Reduced chunk size for better reliability and to prevent JSON truncation
+                const chunks = splitBySections(text, 8000);
                 console.log(`[Worker] Split into ${chunks.length} smart chunks`);
 
-                // Process in parallel with controlled concurrency if needed, but for now Promise.all
-                const results = await Promise.all(
-                    chunks.map((chunk, i) => {
-                        console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
-                        return parseCVChunk(chunk);
-                    })
-                );
-                parsedResults = results;
+                // Process sequentially to be safe with fallback provider rate limits
+                for (let i = 0; i < chunks.length; i++) {
+                    console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
+                    const result = await parseCVChunk(chunks[i]);
+                    parsedResults.push(result);
+                    // Update progress incrementally
+                    await job.updateProgress(10 + Math.floor((i + 1) / chunks.length * 50));
+                }
             }
 
             await job.updateProgress(60);

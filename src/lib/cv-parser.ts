@@ -324,7 +324,7 @@ async function parseWithClaude(userPrompt: string, originalText: string): Promis
     });
 
     const msg = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-latest",
+        model: "claude-3-haiku-20240307",
         max_tokens: 8192,
         system: SYSTEM_PROMPT + "\nIMPORTANT: Your response must be NOTHING but the valid JSON object. No preamble, no explanation.",
         messages: [{ role: "user", content: userPrompt }],
@@ -363,7 +363,8 @@ async function parseWithGemini(userPrompt: string, originalText: string): Promis
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
     // Using gemini-1.5-flash which is widely available and fast
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Using gemini-flash-latest confirmed via diagnostic
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
     const result = await model.generateContent({
         contents: [{

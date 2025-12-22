@@ -8,7 +8,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // For very long CVs, process in chunks to avoid response truncation
-export const CHUNK_SIZE = 3500; // Drastically reduced to ensure fast processing
+export const CHUNK_SIZE = 30000; // Stabilized at 30k for high-tier models
 
 export interface ParsedCategory {
     name: string;
@@ -55,58 +55,24 @@ Then, for each section you find (like Publications, Presentations, Awards, Grant
 For each entry, extract:
 - title: The main title/name of the item
 - description: Any additional details, authors, journal names, etc.
-- date: CRITICAL - Extract ANY date/year mentioned. Look for: years like 2024, 2020-2024, Jan 2024, March 2020-Present, etc. Use ISO format (YYYY-MM-DD, YYYY-MM, or YYYY). ALWAYS try to find a date - most CV entries have years.
-- location: Location if relevant (city, institution, etc.)
+- date: CRITICAL - Extract ANY date/year mentioned. Look for: ISO format (YYYY-MM-DD, YYYY-MM, or YYYY). ALWAYS try to find a date - most CV entries have years.
+- location: Location if relevant
 - url: Any URL or DOI if present
-
-IMPORTANT DATE EXTRACTION:
-- Publications usually have years like "2024" or "Jan 2024"
-- Date ranges like "2018-2022" → use the END date (2022)
-- "Present" or "Current" entries → use start date, leave end as null
-- "Role dates like "July 2020 - Present" → extract "2020-07"
-- Even if date appears in description text or after a journal name, STILL extract it to the date field.
-- EXTREMELY IMPORTANT: Almost every CV entry has a year. If you see any number that looks like a year (1990-2025), extract it.
-
-Common CV sections to look for:
-- Publications (peer-reviewed articles, books, chapters)
-- Presentations (invited talks, conference presentations)
-- Grants & Funding
-- Awards & Honors
-- Education
-- Professional Experience
-- Teaching
-- Mentoring
-- Service & Leadership
-- Editorial Boards
-- Professional Memberships
 
 Return your response as a JSON object with this structure:
 {
-  "profile": {
-    "name": "Dr. Jane Smith",
-    "email": "jane.smith@university.edu",
-    "phone": "+1 (555) 123-4567",
-    "address": "123 University Ave, Boston, MA",
-    "institution": "Harvard Medical School",
-    "website": "https://janesmith.com"
-  },
+  "profile": { "name": "...", "email": "...", "phone": "...", "address": "...", "institution": "...", "website": "..." },
   "categories": [
     {
       "name": "Publications",
       "entries": [
-        {
-          "title": "Paper Title",
-          "description": "Author1, Author2. Journal Name. 2024;Vol:Pages.",
-          "date": "2024",
-          "location": null,
-          "url": "https://doi.org/..."
-        }
+        { "title": "...", "description": "...", "date": "...", "location": "...", "url": "..." }
       ]
     }
   ]
 }
 
-Parse ALL entries you can find in the provided text. Do not summarize or skip any items. Be extremely thorough. ALWAYS extract dates/years when any year is visible. If an entry has no date but the one above it does, look closer for a date. Your response must be a complete and valid JSON object.`;
+Parse ALL entries thoroughly. Do not summarize or skip any items. Your response must be a complete and valid JSON object.`;
 
 export async function parseCV(text: string): Promise<ParsedCV> {
     if (!OPENAI_API_KEY && !ANTHROPIC_API_KEY && !GEMINI_API_KEY) {
@@ -291,13 +257,13 @@ async function parseWithOpenAI(userPrompt: string, originalText: string): Promis
             'Authorization': `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-4o',
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
                 { role: 'user', content: userPrompt },
             ],
-            temperature: 0.2,
-            max_tokens: 12000,
+            temperature: 0.1,
+            max_tokens: 4096,
             response_format: { type: 'json_object' },
         }),
     });

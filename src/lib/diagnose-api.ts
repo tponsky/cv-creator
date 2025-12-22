@@ -1,6 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Anthropic from '@anthropic-ai/sdk';
-import 'dotenv/config';
 
 async function diagnose() {
     console.log('--- DIAGNOSING API KEYS ---');

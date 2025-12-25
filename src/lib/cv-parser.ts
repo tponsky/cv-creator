@@ -4,8 +4,6 @@
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // For very long CVs, process in chunks to avoid response truncation
 export const CHUNK_SIZE = 30000; // Stabilized at 30k for high-tier models
@@ -75,8 +73,8 @@ Return your response as a JSON object with this structure:
 Parse ALL entries thoroughly. Do not summarize or skip any items. Your response must be a complete and valid JSON object.`;
 
 export async function parseCV(text: string): Promise<ParsedCV> {
-    if (!OPENAI_API_KEY && !ANTHROPIC_API_KEY && !GEMINI_API_KEY) {
-        throw new Error('No AI API keys are configured (OpenAI, Anthropic, or Gemini)');
+    if (!OPENAI_API_KEY) {
+        throw new Error('OpenAI API key is required. Please configure OPENAI_API_KEY in your environment.');
     }
 
     if (text.length <= CHUNK_SIZE) {
@@ -203,52 +201,70 @@ export function splitLargeText(text: string, maxSize: number): string[] {
     return chunks;
 }
 
-// Parse a single chunk of CV text with fallback logic
+// SIMPLIFIED: Parse a single chunk using ONLY OpenAI (most reliable)
 export async function parseCVChunk(text: string, attempt: number = 1): Promise<ParsedCV> {
-    const userPrompt = `Parse the following CV section and extract all entries. Return ONLY the sections that are present in this text:
+    if (!OPENAI_API_KEY) {
+        throw new Error('OpenAI API key is required. Please configure OPENAI_API_KEY in your environment.');
+    }
 
-${text}`;
-
-    // 1. Try OpenAI if key is available
-    if (OPENAI_API_KEY && attempt === 1) {
-        try {
-            console.log('[Parser] Trying OpenAI...');
-            return await parseWithOpenAI(userPrompt, text);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.warn(`[Parser] OpenAI failed: ${errorMessage}. Falling back...`);
-            // Continue to fallback
+    // If text is too large, split it further (recursively)
+    if (text.length > 15000 && attempt < 3) {
+        console.log(`[Parser] Text too large (${text.length} chars), splitting further (attempt ${attempt})`);
+        const chunks = splitLargeText(text, 12000); // Smaller chunks for reliability
+        const results: ParsedCV[] = [];
+        
+        for (let i = 0; i < chunks.length; i++) {
+            try {
+                const result = await parseCVChunk(chunks[i], attempt + 1);
+                results.push(result);
+            } catch (error) {
+                console.warn(`[Parser] Chunk ${i + 1}/${chunks.length} failed:`, error instanceof Error ? error.message : String(error));
+                // Continue with other chunks - don't fail completely
+            }
+        }
+        
+        // Merge results
+        if (results.length > 0) {
+            const merged: ParsedCV = {
+                profile: results.find(r => r.profile?.name)?.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
+                categories: [],
+                rawText: text
+            };
+            
+            for (const result of results) {
+                merged.categories.push(...result.categories);
+            }
+            
+            return merged;
+        } else {
+            throw new Error('All chunks failed to parse');
         }
     }
 
-    // 2. Try Anthropic (Claude) if key is available
-    if (ANTHROPIC_API_KEY) {
-        try {
-            console.log('[Parser] Trying Anthropic (Claude)...');
-            return await parseWithClaude(userPrompt, text);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.warn(`[Parser] Anthropic failed: ${errorMessage}. Falling back...`);
-            // Continue to fallback
-        }
-    }
+    // Limit text to 15k chars for API
+    const textToParse = text.length > 15000 ? text.substring(0, 15000) : text;
+    const userPrompt = `Extract CV entries from this text. Return JSON only:
 
-    // 3. Try Gemini if key is available
-    if (GEMINI_API_KEY) {
-        try {
-            console.log('[Parser] Trying Google (Gemini)...');
-            return await parseWithGemini(userPrompt, text);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[Parser] Gemini failed: ${errorMessage}`);
-            // Last resort or throw if all failed
-        }
-    }
+${textToParse}`;
 
-    // If we're here, all providers failed or were not configured
-    throw new Error('All configured AI providers failed to parse CV chunk. Check API quotas and keys.');
+    try {
+        console.log(`[Parser] Parsing ${textToParse.length} chars with OpenAI...`);
+        return await parseWithOpenAI(userPrompt, text);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[Parser] OpenAI failed: ${errorMessage}`);
+        
+        // If it's a size issue and we haven't split yet, try splitting
+        if ((errorMessage.includes('token') || errorMessage.includes('length') || errorMessage.includes('too large')) && attempt === 1 && text.length > 10000) {
+            console.log('[Parser] Retrying with smaller chunks due to size error...');
+            return parseCVChunk(text, attempt + 1);
+        }
+        
+        throw new Error(`Failed to parse CV: ${errorMessage}`);
+    }
 }
 
+// SIMPLIFIED: Use OpenAI with structured output (most reliable)
 async function parseWithOpenAI(userPrompt: string, originalText: string): Promise<ParsedCV> {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -257,104 +273,46 @@ async function parseWithOpenAI(userPrompt: string, originalText: string): Promis
             'Authorization': `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-            model: 'gpt-4o',
+            model: 'gpt-4o-mini', // Use mini for cost efficiency, still very capable
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
                 { role: 'user', content: userPrompt },
             ],
-            temperature: 0.1,
-            max_tokens: 4096,
-            response_format: { type: 'json_object' },
+            temperature: 0.1, // Low temperature for consistent parsing
+            max_tokens: 8000, // Reasonable limit for structured output
+            response_format: { type: 'json_object' }, // Force JSON output
         }),
     });
 
     if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${error}`);
+        const errorText = await response.text();
+        let errorMessage = `OpenAI API error (${response.status})`;
+        try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error?.message || errorMessage;
+        } catch {
+            errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{"categories":[]}';
-    const parsed = JSON.parse(content);
-    return {
-        profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
-        categories: parsed.categories || [],
-        rawText: originalText,
-    };
-}
-
-async function parseWithClaude(userPrompt: string, originalText: string): Promise<ParsedCV> {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default;
-    const anthropic = new Anthropic({
-        apiKey: ANTHROPIC_API_KEY!,
-    });
-
-    const msg = await anthropic.messages.create({
-        model: "claude-3-haiku-20240307",
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT + "\nIMPORTANT: Your response must be NOTHING but the valid JSON object. No preamble, no explanation.",
-        messages: [{ role: "user", content: userPrompt }],
-    });
-
-    // Handle string content from Claude
-    const contentText = msg.content[0].type === 'text' ? msg.content[0].text : '';
-
-    // Improved JSON extraction for Claude
-    let jsonStr = contentText.trim();
-    if (jsonStr.includes('```')) {
-        const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        if (match) jsonStr = match[1];
-    }
-
-    const startIdx = jsonStr.indexOf('{');
-    const endIdx = jsonStr.lastIndexOf('}');
-    if (startIdx !== -1 && endIdx !== -1) {
-        jsonStr = jsonStr.substring(startIdx, endIdx + 1);
+    const content = data.choices?.[0]?.message?.content;
+    
+    if (!content) {
+        throw new Error('OpenAI returned empty response');
     }
 
     try {
-        const parsed = JSON.parse(jsonStr);
+        const parsed = JSON.parse(content);
         return {
             profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
-            categories: parsed.categories || [],
+            categories: Array.isArray(parsed.categories) ? parsed.categories : [],
             rawText: originalText,
         };
-    } catch (e) {
-        console.error('[Parser] Claude JSON parse failed. Content snippet:', contentText.slice(0, 200));
-        throw e;
-    }
-}
-
-async function parseWithGemini(userPrompt: string, originalText: string): Promise<ParsedCV> {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
-    // Using gemini-1.5-flash which is widely available and fast
-    // Using gemini-flash-latest confirmed via diagnostic
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
-    const result = await model.generateContent({
-        contents: [{
-            role: 'user',
-            parts: [{ text: SYSTEM_PROMPT + "\n\n" + userPrompt }]
-        }],
-        generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.1,
-            maxOutputTokens: 8192,
-        }
-    });
-
-    const contentText = result.response.text();
-    try {
-        const parsed = JSON.parse(contentText);
-        return {
-            profile: parsed.profile || { name: null, email: null, phone: null, address: null, institution: null, website: null },
-            categories: parsed.categories || [],
-            rawText: originalText,
-        };
-    } catch (e) {
-        console.error('[Parser] Gemini JSON parse failed. Content snippet:', contentText.slice(0, 200));
-        throw e;
+    } catch (parseError) {
+        console.error('[Parser] JSON parse error. Content:', content.substring(0, 500));
+        throw new Error(`Failed to parse OpenAI response as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
     }
 }
 

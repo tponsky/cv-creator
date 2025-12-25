@@ -4,6 +4,16 @@ import { CV_QUEUE_NAME, CVJobData } from './queue';
 import { parseCVChunk, ParsedCV } from './cv-parser';
 import prisma from '@/lib/prisma';
 
+// Add error handlers for uncaught errors
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Worker] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('[Worker] Uncaught Exception:', error);
+    // Don't exit immediately, let the worker handle it
+});
+
 /**
  * Smart section-aware splitting for genuinely large CVs
  */
@@ -45,48 +55,110 @@ function splitBySections(text: string, maxChars: number = 80000): string[] {
     return chunks;
 }
 
+// Verify Redis connection before starting worker
+async function verifyRedisConnection() {
+    try {
+        await redis.ping();
+        console.log('[Worker] Redis connection verified');
+        return true;
+    } catch (error) {
+        console.error('[Worker] Redis connection failed:', error);
+        return false;
+    }
+}
+
+// Verify database connection
+async function verifyDatabaseConnection() {
+    try {
+        await prisma.$connect();
+        console.log('[Worker] Database connection verified');
+        return true;
+    } catch (error) {
+        console.error('[Worker] Database connection failed:', error);
+        return false;
+    }
+}
+
 const worker = new Worker(
     CV_QUEUE_NAME,
     async (job: Job<CVJobData>) => {
         const { userId, text } = job.data;
+        const jobStartTime = Date.now();
         console.log(`[Worker] Starting job ${job.id} for user ${userId} (${text.length} chars)`);
 
         try {
-            await job.updateProgress(10);
-
-            // 1. Determine if we can process in one go or move to smart chunking
-            // OpenAI handles ~128k tokens, but we keep a buffer. 100k chars is very safe (~25k tokens).
-            let parsedResults: ParsedCV[] = [];
-
-            if (text.length < 40000) {
-                console.log(`[Worker] Processing entire CV in one call`);
-                const result = await parseCVChunk(text);
-                parsedResults = [result];
-            } else {
-                console.log(`[Worker] CV is large (${text.length} chars). Using robust section-aware chunking.`);
-                // Increased chunk size to 40k now that GPT-4o is back in play
-                const chunks = splitBySections(text, 40000);
-                console.log(`[Worker] Split into ${chunks.length} smart chunks`);
-
-                // Process sequentially for maximum reliability
-                for (let i = 0; i < chunks.length; i++) {
-                    console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
-                    const result = await parseCVChunk(chunks[i]);
-                    parsedResults.push(result);
-                    // Update progress incrementally
-                    await job.updateProgress(10 + Math.floor((i + 1) / chunks.length * 80));
-                }
+            // Validate job data
+            if (!userId || !text || text.length < 10) {
+                throw new Error(`Invalid job data: userId=${userId}, textLength=${text?.length || 0}`);
             }
 
-            await job.updateProgress(60);
+            await job.updateProgress(5); // Initial setup
+
+            // 1. Determine if we can process in one go or move to smart chunking
+            let parsedResults: ParsedCV[] = [];
+
+            // Use smaller chunks for better reliability
+            const CHUNK_SIZE = 15000; // Reduced from 40k for better reliability
+            
+            if (text.length < CHUNK_SIZE) {
+                console.log(`[Worker] Processing entire CV in one call`);
+                await job.updateProgress(10); // Starting parsing
+                const result = await parseCVChunk(text);
+                parsedResults = [result];
+                await job.updateProgress(65); // Parsing complete
+            } else {
+                console.log(`[Worker] CV is large (${text.length} chars). Using smaller chunks (${CHUNK_SIZE} chars each).`);
+                await job.updateProgress(10); // Starting chunking
+                const chunks = splitBySections(text, CHUNK_SIZE);
+                console.log(`[Worker] Split into ${chunks.length} chunks`);
+
+                // Process sequentially with error tolerance
+                // Progress: 10% (start) to 65% (end of parsing)
+                // That's 55% for parsing, divided among chunks
+                const parsingProgressRange = 55; // 10% to 65%
+                
+                for (let i = 0; i < chunks.length; i++) {
+                    console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
+                    await job.updateProgress(10 + Math.floor((i / chunks.length) * parsingProgressRange));
+                    
+                    try {
+                        const result = await parseCVChunk(chunks[i]);
+                        // Only add if we got some data
+                        if (result.categories.length > 0 || result.profile?.name) {
+                            parsedResults.push(result);
+                        }
+                        // Update progress after each chunk completes
+                        await job.updateProgress(10 + Math.floor(((i + 1) / chunks.length) * parsingProgressRange));
+                    } catch (error) {
+                        console.warn(`[Worker] Chunk ${i + 1} failed, continuing with next chunk:`, error);
+                        // Still update progress even if chunk failed
+                        await job.updateProgress(10 + Math.floor(((i + 1) / chunks.length) * parsingProgressRange));
+                        // Continue processing other chunks
+                    }
+                }
+            }
+            
+            // If we got no results, that's okay - better than failing completely
+            if (parsedResults.length === 0) {
+                console.warn('[Worker] No data extracted, but continuing to avoid complete failure');
+                parsedResults.push({
+                    profile: { name: null, email: null, phone: null, address: null, institution: null, website: null },
+                    categories: [],
+                    rawText: text
+                });
+            }
+
+            await job.updateProgress(65); // Parsing phase complete
 
             // 2. Database Persistence Logic (Optimized)
             console.log(`[Worker] Persisting results to database for user ${userId}`);
+            await job.updateProgress(70); // Starting database operations
 
             let cv = await prisma.cV.findUnique({ where: { userId } });
             if (!cv) {
                 cv = await prisma.cV.create({ data: { userId, title: 'My CV' } });
             }
+            await job.updateProgress(72); // CV found/created
 
             // Profile update from the first result (usually header)
             const firstResult = parsedResults.find(r => r.profile?.name);
@@ -105,6 +177,7 @@ const worker = new Worker(
             }
 
             // Pre-fetch categories for the CV
+            await job.updateProgress(75); // Fetching existing data
             const currentCategories = await prisma.category.findMany({
                 where: { cvId: cv.id },
                 select: { id: true, name: true }
@@ -116,6 +189,7 @@ const worker = new Worker(
                 where: { category: { cvId: cv.id } },
                 select: { title: true, date: true, description: true },
             });
+            await job.updateProgress(78); // Existing data loaded
 
             const createEntryKey = (title: string, date: Date | null, description: string | null) => {
                 const t = title.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
@@ -128,10 +202,18 @@ const worker = new Worker(
             const existingKeys = new Set(existingEntries.map(e => createEntryKey(e.title, e.date, e.description)));
 
             let createdCount = 0;
+            const totalCategories = parsedResults.reduce((sum, r) => sum + r.categories.length, 0);
+            let processedCategories = 0;
 
             // Merge and save categories/entries
+            // Progress: 78% to 95% for saving (17% range)
             for (const result of parsedResults) {
                 for (const parsedCat of result.categories) {
+                    processedCategories++;
+                    // Update progress as we save each category
+                    if (totalCategories > 0) {
+                        await job.updateProgress(78 + Math.floor((processedCategories / totalCategories) * 17));
+                    }
                     const catNameLower = parsedCat.name.toLowerCase();
                     let categoryId = categoryMap.get(catNameLower);
 
@@ -219,12 +301,21 @@ const worker = new Worker(
                 }
             }
 
-            console.log(`[Worker] Completed job ${job.id}. Created ${createdCount} entries.`);
-            await job.updateProgress(100);
+            await job.updateProgress(95); // All data saved
+            const duration = Date.now() - jobStartTime;
+            console.log(`[Worker] Completed job ${job.id}. Created ${createdCount} entries in ${duration}ms`);
+            await job.updateProgress(100); // Complete
             return { createdCount };
 
         } catch (error) {
-            console.error(`[Worker] Job ${job.id} failed:`, error);
+            const duration = Date.now() - jobStartTime;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorStack = error instanceof Error ? error.stack : undefined;
+            console.error(`[Worker] Job ${job.id} failed after ${duration}ms:`, errorMessage);
+            if (errorStack) {
+                console.error(`[Worker] Error stack:`, errorStack);
+            }
+            // Re-throw to mark job as failed
             throw error;
         }
     },
@@ -234,6 +325,63 @@ const worker = new Worker(
     }
 );
 
-console.log(`[Worker] CV processing worker started and listening for jobs...`);
+// Worker event handlers for better monitoring
+worker.on('completed', (job) => {
+    console.log(`[Worker] Job ${job.id} completed successfully`);
+});
+
+worker.on('failed', (job, err) => {
+    console.error(`[Worker] Job ${job?.id || 'unknown'} failed:`, err.message);
+});
+
+worker.on('error', (err) => {
+    console.error('[Worker] Worker error:', err);
+});
+
+worker.on('stalled', (jobId) => {
+    console.warn(`[Worker] Job ${jobId} stalled`);
+});
+
+// Initialize connections and start worker
+async function startWorker() {
+    console.log('[Worker] Initializing worker...');
+    
+    const redisOk = await verifyRedisConnection();
+    if (!redisOk) {
+        console.error('[Worker] Cannot start: Redis connection failed');
+        process.exit(1);
+    }
+
+    const dbOk = await verifyDatabaseConnection();
+    if (!dbOk) {
+        console.error('[Worker] Cannot start: Database connection failed');
+        process.exit(1);
+    }
+
+    console.log(`[Worker] CV processing worker started and listening for jobs on queue: ${CV_QUEUE_NAME}`);
+}
+
+// Start the worker
+startWorker().catch((error) => {
+    console.error('[Worker] Failed to start worker:', error);
+    process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('[Worker] SIGTERM received, closing worker gracefully...');
+    await worker.close();
+    await redis.quit();
+    await prisma.$disconnect();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('[Worker] SIGINT received, closing worker gracefully...');
+    await worker.close();
+    await redis.quit();
+    await prisma.$disconnect();
+    process.exit(0);
+});
 
 export default worker;

@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3001:3000"
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://cvuser:cvpassword@db:5432/cv_creator
       - REDIS_URL=redis://redis:6379
@@ -15,6 +17,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AFFINDA_API_KEY=${AFFINDA_API_KEY}
       - RESEND_API_KEY=re_jBLPBeWR_N4J3UXtc34R81Ldmmv41P7FZ
     depends_on:
       db:
@@ -28,6 +31,8 @@ services:
       context: .
       dockerfile: Dockerfile
     command: npm run worker
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://cvuser:cvpassword@db:5432/cv_creator
       - REDIS_URL=redis://redis:6379

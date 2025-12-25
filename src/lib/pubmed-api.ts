@@ -6,6 +6,10 @@
 
 const PUBMED_BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 
+// NCBI API key (optional but recommended for higher rate limits)
+// Without key: 3 requests/second, With key: 10 requests/second
+const NCBI_API_KEY = process.env.NCBI_API_KEY || '';
+
 export interface PubMedArticle {
     pmid: string;
     title: string;
@@ -19,6 +23,42 @@ export interface PubMedArticle {
 export interface PubMedSearchResult {
     count: number;
     articles: PubMedArticle[];
+}
+
+/**
+ * Fetch with retry and exponential backoff for rate limiting
+ */
+async function fetchWithRetry(url: string, maxRetries: number = 3): Promise<Response> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const response = await fetch(url);
+            
+            // If rate limited (429 or 503), wait and retry
+            if (response.status === 429 || response.status === 503) {
+                const waitTime = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+                console.log(`PubMed rate limited, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+                await new Promise(r => setTimeout(r, waitTime));
+                continue;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`Request failed: ${response.statusText}`);
+            }
+            
+            return response;
+        } catch (error) {
+            lastError = error as Error;
+            if (attempt < maxRetries - 1) {
+                const waitTime = Math.pow(2, attempt + 1) * 1000;
+                console.log(`PubMed request failed, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+                await new Promise(r => setTimeout(r, waitTime));
+            }
+        }
+    }
+    
+    throw lastError || new Error('Max retries exceeded');
 }
 
 /**
@@ -37,13 +77,12 @@ export async function searchPubMed(
         term = `${term}[Title]`;
     }
 
-    const searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(term)}&retmax=${maxResults}&retmode=json`;
-
-    const response = await fetch(searchUrl);
-    if (!response.ok) {
-        throw new Error(`PubMed search failed: ${response.statusText}`);
+    let searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(term)}&retmax=${maxResults}&retmode=json`;
+    if (NCBI_API_KEY) {
+        searchUrl += `&api_key=${NCBI_API_KEY}`;
     }
 
+    const response = await fetchWithRetry(searchUrl);
     const data = await response.json();
     return data.esearchresult?.idlist || [];
 }
@@ -54,13 +93,12 @@ export async function searchPubMed(
 export async function fetchArticleDetails(pmids: string[]): Promise<PubMedArticle[]> {
     if (pmids.length === 0) return [];
 
-    const fetchUrl = `${PUBMED_BASE_URL}/efetch.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=xml`;
-
-    const response = await fetch(fetchUrl);
-    if (!response.ok) {
-        throw new Error(`PubMed fetch failed: ${response.statusText}`);
+    let fetchUrl = `${PUBMED_BASE_URL}/efetch.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=xml`;
+    if (NCBI_API_KEY) {
+        fetchUrl += `&api_key=${NCBI_API_KEY}`;
     }
 
+    const response = await fetchWithRetry(fetchUrl);
     const xmlText = await response.text();
     return parseArticlesFromXml(xmlText);
 }

@@ -150,6 +150,34 @@ body {
 @layer components {
   .input {
     @apply w-full px-4 py-3 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-all duration-200;
+    color: var(--foreground) !important;
+    -webkit-text-fill-color: var(--foreground) !important;
+  }
+  
+  /* Force text color in all input types */
+  input, textarea, select {
+    color: var(--foreground) !important;
+    -webkit-text-fill-color: var(--foreground) !important;
+    background-color: var(--input) !important;
+  }
+  
+  input::placeholder, textarea::placeholder {
+    color: var(--muted-foreground) !important;
+    -webkit-text-fill-color: var(--muted-foreground) !important;
+    opacity: 1;
+  }
+  
+  /* Fix autofill styling */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--foreground) !important;
+    -webkit-box-shadow: 0 0 0 1000px var(--input) inset !important;
+    box-shadow: 0 0 0 1000px var(--input) inset !important;
+    transition: background-color 5000s ease-in-out 0s;
   }
 
   .btn {

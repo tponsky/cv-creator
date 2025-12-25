@@ -72,6 +72,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [wizardStep, setWizardStep] = useState(0); // 0 = normal settings, 1-6 = onboarding wizard
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [pasteMode, setPasteMode] = useState(false);
+    const [pasteText, setPasteText] = useState('');
 
     // Deduplication state
     interface DuplicateEntry {
@@ -109,6 +111,8 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [missingDatesEntries, setMissingDatesEntries] = useState<MissingDateEntry[]>([]);
     const [missingDatesLoading, setMissingDatesLoading] = useState(false);
     const [dateEdits, setDateEdits] = useState<Record<string, string>>({});
+    const [autoFixingDates, setAutoFixingDates] = useState(false);
+    const [autoFixResult, setAutoFixResult] = useState<{ updated: number; skipped: number } | null>(null);
 
     // PMID enrichment state
     interface PmidEntry {
@@ -170,7 +174,12 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     if (data.user) setProfile(data.user);
                 }
             } catch (e) {
-                console.error('Failed to fetch profile:', e);
+                // Silently fail - profile fetch is optional on settings page
+                if (e instanceof TypeError && e.message.includes('Load failed')) {
+                    console.warn('Network error fetching profile (this is normal if offline)');
+                } else {
+                    console.error('Failed to fetch profile:', e);
+                }
             }
         };
         fetchProfile();
@@ -205,7 +214,13 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     setWizardStep(1);
                 }
             } catch (e) {
-                console.error('Failed to check entries:', e);
+                // Silently fail - these are optional checks
+                // Don't log as error to avoid console spam
+                if (e instanceof TypeError && e.message.includes('Load failed')) {
+                    console.warn('Network error checking entries (this is normal if offline)');
+                } else {
+                    console.error('Failed to check entries:', e);
+                }
             }
         };
         checkExistingEntries();
@@ -239,100 +254,299 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         }
     };
 
+    // Warn user before leaving page during upload
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (cvUploading) {
+                e.preventDefault();
+                e.returnValue = 'CV processing is in progress. Are you sure you want to leave?';
+                return e.returnValue;
+            }
+        };
+        
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [cvUploading]);
+
+    // Extract text from PDF using pdf.js
+    const extractTextFromPDF = async (file: File): Promise<string> => {
+        const pdfjsLib = await import('pdfjs-dist');
+        
+        // Set worker source - use unpkg which is more reliable
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+                .map((item) => ('str' in item ? item.str : ''))
+                .join(' ');
+            fullText += pageText + '\n\n';
+        }
+        
+        return fullText;
+    };
+
+    // Split text into chunks by section headers
+    const splitTextIntoChunks = (text: string, maxChunkSize: number = 10000): string[] => {
+        const sectionPattern = /\n(?=(?:PUBLICATIONS?|PEER[- ]?REVIEWED|PRESENTATIONS?|ABSTRACTS?|GRANTS?|FUNDING|AWARDS?|HONORS?|EDUCATION|EXPERIENCE|TEACHING|MENTORING|SERVICE|LEADERSHIP|PROFESSIONAL|EDITORIAL|COMMITTEE|TRAINING|RESEARCH|CLINICAL|ACADEMIC|PATENTS?|BOOKS?|CHAPTERS?|INVITED|CONFERENCES?|APPOINTMENTS?|POSITIONS?)\s*[:\n])/gi;
+        
+        const sections = text.split(sectionPattern);
+        const chunks: string[] = [];
+        let currentChunk = '';
+        
+        for (const section of sections) {
+            if (currentChunk.length + section.length < maxChunkSize) {
+                currentChunk += section;
+            } else {
+                if (currentChunk.trim()) chunks.push(currentChunk.trim());
+                if (section.length > maxChunkSize) {
+                    // Split large sections by paragraphs
+                    const paragraphs = section.split(/\n\n+/);
+                    let subChunk = '';
+                    for (const para of paragraphs) {
+                        if (subChunk.length + para.length < maxChunkSize) {
+                            subChunk += (subChunk ? '\n\n' : '') + para;
+                        } else {
+                            if (subChunk) chunks.push(subChunk);
+                            subChunk = para.length > maxChunkSize ? para.substring(0, maxChunkSize) : para;
+                        }
+                    }
+                    if (subChunk) chunks.push(subChunk);
+                    currentChunk = '';
+                } else {
+                    currentChunk = section;
+                }
+            }
+        }
+        if (currentChunk.trim()) chunks.push(currentChunk.trim());
+        
+        return chunks.length > 0 ? chunks : [text];
+    };
+
     const uploadCV = async (file: File) => {
+        console.log('[Upload] Starting client-side processing for:', file.name, file.size, 'bytes');
         setCvUploading(true);
         setCvError('');
         setCvMessage('');
         setCvResult(null);
-        setCvChunkProgress(null);
+        setCvChunkProgress({ current: 0, total: 100 });
 
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            setCvMessage('Uploading and analyzing CV...');
-            const uploadRes = await fetch('/api/import/cv/upload', {
-                method: 'POST',
-                body: formData,
-            });
-            const uploadData = await uploadRes.json();
-
-            if (!uploadRes.ok) {
-                throw new Error(uploadData.error || 'Upload failed');
+            // Validate file
+            if (file.size === 0) {
+                throw new Error('File is empty. Please select a valid CV file.');
+            }
+            if (file.size > 15 * 1024 * 1024) {
+                throw new Error('File is too large. Maximum size is 15MB.');
             }
 
-            const { jobId } = uploadData;
-            setCvMessage('Processing CV in background...');
+            // Step 1: Extract text from PDF (client-side)
+            // Estimate processing time: ~1 min per page of CV
+            const estimatedPages = Math.ceil(file.size / 50000); // Rough estimate
+            const estimatedMinutes = Math.max(1, Math.ceil(estimatedPages * 0.8));
+            setCvMessage(`⚠️ Stay on this page - Extracting text (~${estimatedMinutes} min total for ${estimatedPages} pages)...`);
+            setCvChunkProgress({ current: 5, total: 100 });
+            
+            let text: string;
+            if (file.type === 'application/pdf') {
+                text = await extractTextFromPDF(file);
+            } else {
+                throw new Error('Please upload a PDF file. Word documents are not supported for client-side processing.');
+            }
+            
+            console.log('[Upload] Extracted', text.length, 'characters');
+            setCvChunkProgress({ current: 10, total: 100 });
 
-            let retryCount = 0;
-            const pollInterval = setInterval(async () => {
+            // Step 2: Split into chunks
+            const chunks = splitTextIntoChunks(text, 10000);
+            console.log('[Upload] Split into', chunks.length, 'chunks');
+            
+            let totalEntriesCreated = 0;
+            let totalDuplicatesSkipped = 0;
+            const allCategories: string[] = [];
+
+            // Step 3: Process each chunk
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                const isFirstChunk = i === 0;
+                const isLastChunk = i === chunks.length - 1;
+                
+                // Calculate progress: 10% for extraction, 85% for chunks, 5% for finalization
+                const chunkProgress = 10 + Math.floor(((i + 1) / chunks.length) * 85);
+                setCvChunkProgress({ current: chunkProgress, total: 100 });
+                // Estimate ~30 seconds per chunk
+            const estimatedMinutes = Math.ceil((chunks.length - i) * 0.5);
+            setCvMessage(`⚠️ Stay on this page - Processing section ${i + 1} of ${chunks.length} (~${estimatedMinutes} min remaining)`);
+                
+                console.log(`[Upload] Processing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
+                
                 try {
-                    const statusRes = await fetch(`/api/import/cv/status/${jobId}`);
-
-                    if (!statusRes.ok) {
-                        const errorData = await statusRes.json().catch(() => ({}));
-
-                        // If job is not found, maybe it just finished and was cleaned up (though we increased age)
-                        // or it's a transient Redis issue. Try a couple more times.
-                        if (statusRes.status === 404) {
-                            console.warn('Job not found in poll, retrying...', jobId);
-                            if (retryCount < 5) {
-                                retryCount++;
-                                return;
-                            }
-                        }
-                        throw new Error(errorData.error || 'Failed to check status');
+                    const response = await fetch('/api/import/cv/chunk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            text: chunk,
+                            chunkIndex: i,
+                            totalChunks: chunks.length,
+                            isFirstChunk,
+                            isLastChunk,
+                        }),
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        console.error(`[Upload] Chunk ${i + 1} failed:`, errorData);
+                        // Continue with other chunks even if one fails
+                        continue;
                     }
-
-                    const statusData = await statusRes.json();
-                    retryCount = 0; // Reset on success
-
-                    // Update progress
-                    if (statusData.progress !== undefined) {
-                        setCvChunkProgress({ current: statusData.progress, total: 100 });
-
-                        if (statusData.progress < 20) setCvMessage('Reading file...');
-                        else if (statusData.progress < 60) setCvMessage('Analyzing with AI...');
-                        else if (statusData.progress < 100) setCvMessage('Saving to database...');
+                    
+                    const result = await response.json();
+                    totalEntriesCreated += result.entriesCreated || 0;
+                    totalDuplicatesSkipped += result.duplicatesSkipped || 0;
+                    if (result.categoriesProcessed) {
+                        allCategories.push(...result.categoriesProcessed);
                     }
-
-                    if (statusData.isFinished) {
-                        clearInterval(pollInterval);
-                        setCvUploading(false);
-                        setCvChunkProgress(null);
-
-                        if (statusRes.status === 200 && statusData.state === 'completed') {
-                            const createdCount = statusData.result?.createdCount || 0;
-                            setCvMessage(`Successfully imported ${createdCount} new entries!`);
-                            setHasExistingEntries(true);
-
-                            // Auto-advance if in wizard mode
-                            setWizardStep(prev => {
-                                if (prev === 2) {
-                                    // Set message immediately if possible, but the setter is safer outside
-                                    return 3;
-                                }
-                                return prev;
-                            });
-                            if (wizardStep === 2) {
-                                setCvMessage('CV ADDED SUCCESSFULLY!');
-                            }
-                        } else {
-                            setCvError(statusData.failedReason || 'Processing failed');
-                        }
-                    }
-                } catch (err) {
-                    clearInterval(pollInterval);
-                    console.error('Poll error:', err);
-                    setCvError('Connection error while checking status');
-                    setCvUploading(false);
+                    
+                    console.log(`[Upload] Chunk ${i + 1} complete:`, result.entriesCreated, 'entries');
+                    
+                } catch (chunkError) {
+                    console.error(`[Upload] Chunk ${i + 1} error:`, chunkError);
+                    // Continue with other chunks
                 }
-            }, 2000);
+            }
+
+            // Step 4: Complete
+            setCvChunkProgress({ current: 100, total: 100 });
+            setCvUploading(false);
+            
+            const uniqueCategories = Array.from(new Set(allCategories));
+            
+            if (totalEntriesCreated > 0) {
+                setCvMessage(`✅ Successfully imported ${totalEntriesCreated} entries from ${uniqueCategories.length} categories!${totalDuplicatesSkipped > 0 ? ` (${totalDuplicatesSkipped} duplicates skipped)` : ''}`);
+                setHasExistingEntries(true);
+                setCvResult({
+                    success: true,
+                    message: `Imported ${totalEntriesCreated} entries`,
+                    entriesCreated: totalEntriesCreated,
+                    categoriesFound: uniqueCategories.length,
+                    categories: uniqueCategories.map(name => ({ name, entryCount: 0 })),
+                });
+                
+                // Auto-advance if in wizard mode
+                if (wizardStep === 2) {
+                    setWizardStep(3);
+                    setCvMessage('CV ADDED SUCCESSFULLY!');
+                }
+            } else if (totalDuplicatesSkipped > 0) {
+                setCvMessage(`CV processed. ${totalDuplicatesSkipped} entries were already imported (duplicates skipped).`);
+            } else {
+                setCvMessage('CV processed, but no entries were found. The file format may not be supported.');
+            }
+            
+            setCvChunkProgress(null);
 
         } catch (err) {
-            console.error('Upload flow fail:', err);
-            setCvError(err instanceof Error ? err.message : 'Upload failed');
+            console.error('[Upload] Error:', err);
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            setCvError(errorMessage || 'Upload failed. Please try again.');
             setCvUploading(false);
+            setCvChunkProgress(null);
+        }
+    };
+
+    // Upload pasted text (for specific sections)
+    const uploadPastedText = async () => {
+        if (!pasteText.trim() || pasteText.length < 50) {
+            setCvError('Please paste at least 50 characters of CV text.');
+            return;
+        }
+
+        setCvUploading(true);
+        setCvError('');
+        setCvMessage('Processing pasted text...');
+        setCvChunkProgress({ current: 10, total: 100 });
+
+        try {
+            const text = pasteText.trim();
+            
+            // Split into chunks if needed
+            const chunkSize = 10000;
+            const chunks: string[] = [];
+            for (let i = 0; i < text.length; i += chunkSize) {
+                chunks.push(text.slice(i, i + chunkSize));
+            }
+
+            let totalEntriesCreated = 0;
+            let totalEntriesUpdated = 0;
+            let totalDuplicatesSkipped = 0;
+            const allCategories: string[] = [];
+
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                setCvMessage(`Processing section ${i + 1} of ${chunks.length}...`);
+                setCvChunkProgress({ current: 10 + Math.floor(((i + 1) / chunks.length) * 85), total: 100 });
+
+                const response = await fetch('/api/import/cv/chunk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: chunk,
+                        chunkIndex: i,
+                        totalChunks: chunks.length,
+                        isFirstChunk: i === 0,
+                        isLastChunk: i === chunks.length - 1,
+                    }),
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    totalEntriesCreated += result.entriesCreated || 0;
+                    totalEntriesUpdated += result.entriesUpdated || 0;
+                    totalDuplicatesSkipped += result.duplicatesSkipped || 0;
+                    if (result.categoriesProcessed) {
+                        allCategories.push(...result.categoriesProcessed);
+                    }
+                }
+            }
+
+            setCvChunkProgress({ current: 100, total: 100 });
+            setCvUploading(false);
+            setPasteText('');
+            setPasteMode(false);
+
+            const uniqueCategories = Array.from(new Set(allCategories));
+
+            if (totalEntriesCreated > 0 || totalEntriesUpdated > 0) {
+                let msg = '✅ ';
+                if (totalEntriesCreated > 0) msg += `Created ${totalEntriesCreated} new entries`;
+                if (totalEntriesUpdated > 0) msg += `${totalEntriesCreated > 0 ? ', ' : ''}Updated ${totalEntriesUpdated} entries with dates`;
+                if (totalDuplicatesSkipped > 0) msg += ` (${totalDuplicatesSkipped} duplicates skipped)`;
+                setCvMessage(msg);
+                setCvResult({
+                    success: true,
+                    message: msg,
+                    entriesCreated: totalEntriesCreated + totalEntriesUpdated,
+                    categoriesFound: uniqueCategories.length,
+                    categories: uniqueCategories.map(name => ({ name, entryCount: 0 })),
+                });
+            } else if (totalDuplicatesSkipped > 0) {
+                setCvMessage(`Text processed. ${totalDuplicatesSkipped} entries were already imported with dates.`);
+            } else {
+                setCvMessage('No new entries found in the pasted text.');
+            }
+
+            setCvChunkProgress(null);
+
+        } catch (err) {
+            console.error('[Paste Upload] Error:', err);
+            setCvError(err instanceof Error ? err.message : 'Failed to process pasted text.');
+            setCvUploading(false);
+            setCvChunkProgress(null);
         }
     };
 
@@ -484,6 +698,27 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         }
     };
 
+    // Auto-fix dates by extracting from titles/descriptions
+    const autoFixDates = async () => {
+        setAutoFixingDates(true);
+        setAutoFixResult(null);
+        try {
+            const res = await fetch('/api/cv/fix-dates', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                setAutoFixResult({ updated: data.updatedCount, skipped: data.skippedCount });
+                // Refresh the missing dates list
+                fetchMissingDates();
+            } else {
+                console.error('Auto-fix failed:', data.error);
+            }
+        } catch (err) {
+            console.error('Auto-fix dates error:', err);
+        } finally {
+            setAutoFixingDates(false);
+        }
+    };
+
     // PMID enrichment handlers
     const fetchPmidEntries = useCallback(async () => {
         setPmidLoading(true);
@@ -527,79 +762,70 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         let successCount = 0;
         let failCount = 0;
 
-        // Process in chunks of 5 to speed up but verify progress
-        const chunkSize = 5;
-        for (let i = 0; i < entriesToProcess.length; i += chunkSize) {
-            const chunk = entriesToProcess.slice(i, i + chunkSize);
-            setPmidEnrichMessage(`Processing ${i + 1} to ${Math.min(i + chunkSize, entriesToProcess.length)} of ${entriesToProcess.length} entries...`);
+        // Process ONE at a time to respect PubMed rate limits (3 req/sec max)
+        // Each entry requires 2 requests (search + save), so 1 entry per 1.5 seconds
+        for (let i = 0; i < entriesToProcess.length; i++) {
+            const entry = entriesToProcess[i];
+            const remaining = entriesToProcess.length - i;
+            const estimatedMins = Math.ceil(remaining * 1.5 / 60);
+            setPmidEnrichMessage(`Processing ${i + 1} of ${entriesToProcess.length} (~${estimatedMins} min remaining)...`);
 
-            // Limit concurrency
-            const results = await Promise.all(chunk.map(async (entry) => {
-                try {
-                    // Search PubMed for this title
-                    const searchRes = await fetch('/api/cv/enrich-pmid', {
-                        method: 'PUT',
+            try {
+                // Search PubMed for this title
+                const searchRes = await fetch('/api/cv/enrich-pmid', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: entry.title }),
+                });
+                
+                // Wait 600ms after search to respect rate limits
+                await new Promise(r => setTimeout(r, 600));
+                
+                const searchData = await searchRes.json();
+
+                if (searchRes.ok && searchData.results && searchData.results.length > 0) {
+                    // Apply the best match (first result)
+                    const bestMatch = searchData.results[0];
+                    const applyRes = await fetch('/api/cv/enrich-pmid', {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ title: entry.title }),
+                        body: JSON.stringify({
+                            entryId: entry.id,
+                            pmid: bestMatch.pmid,
+                            doi: bestMatch.doi
+                        }),
                     });
-                    const searchData = await searchRes.json();
 
-                    if (searchRes.ok && searchData.results && searchData.results.length > 0) {
-                        // Apply the best match (first result)
-                        const bestMatch = searchData.results[0];
-                        const applyRes = await fetch('/api/cv/enrich-pmid', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                entryId: entry.id,
-                                pmid: bestMatch.pmid,
-                                doi: bestMatch.doi
-                            }),
+                    // Wait 600ms after save
+                    await new Promise(r => setTimeout(r, 600));
+
+                    if (applyRes.ok) {
+                        successCount++;
+                        // Update UI immediately for this entry
+                        setPmidEntries(prev => prev.filter(e => e.id !== entry.id));
+                        setSelectedPmidEntries(prev => {
+                            const next = new Set(prev);
+                            next.delete(entry.id);
+                            return next;
                         });
-
-                        return applyRes.ok ? { success: true, id: entry.id } : { success: false, id: entry.id };
+                        setPmidStats(prev => prev ? ({
+                            ...prev,
+                            withPmid: prev.withPmid + 1,
+                            withoutPmid: prev.withoutPmid - 1,
+                        }) : null);
+                    } else {
+                        failCount++;
                     }
-                    return { success: false, id: entry.id };
-                } catch (err) {
-                    console.error('Batch enrich error for', entry.id, err);
-                    return { success: false, id: entry.id };
-                }
-            }));
-
-            // Handle results for this chunk
-            const processedIds = new Set<string>();
-            let chunkSuccess = 0;
-
-            results.forEach(res => {
-                if (res.success) {
-                    chunkSuccess++;
-                    processedIds.add(res.id);
                 } else {
                     failCount++;
+                    // Still wait to not hammer the API
+                    await new Promise(r => setTimeout(r, 400));
                 }
-            });
-            successCount += chunkSuccess;
-
-            // Update UI incrementally
-            if (processedIds.size > 0) {
-                setPmidEntries(prev => prev.filter(e => !processedIds.has(e.id)));
-                setSelectedPmidEntries(prev => {
-                    const next = new Set(prev);
-                    processedIds.forEach(id => next.delete(id));
-                    return next;
-                });
-
-                // Update stats
-                setPmidStats(prev => prev ? ({
-                    ...prev,
-                    withPmid: prev.withPmid + chunkSuccess,
-                    withoutPmid: prev.withoutPmid - chunkSuccess,
-                }) : null);
-            }
-
-            // Small delay to respect PubMed rate limits (3 requests/sec)
-            if (i + chunkSize < entriesToProcess.length) {
-                await new Promise(r => setTimeout(r, 800));
+            } catch (err) {
+                console.error('Batch enrich error for', entry.id, err);
+                failCount++;
+                // Wait on error too
+                await new Promise(r => setTimeout(r, 1000));
             }
         }
 
@@ -779,21 +1005,21 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}>
 
                                 {cvUploading ? (
-                                    <div className="py-12">
+                                    <div className="py-12 text-foreground">
                                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-                                        <p className="text-xl font-medium mb-1">{cvMessage}</p>
+                                        <p className="text-xl font-medium mb-1 text-foreground">{cvMessage}</p>
                                         {cvChunkProgress && (
                                             <div className="max-w-xs mx-auto mt-4">
-                                                <div className="flex justify-between text-sm mb-1">
+                                                <div className="flex justify-between text-sm mb-1 text-foreground">
                                                     <span>Processing...</span>
                                                     <span>{cvChunkProgress.current}%</span>
                                                 </div>
-                                                <div className="h-2 w-full bg-border rounded-full overflow-hidden">
+                                                <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                                                     <div className="h-full bg-primary transition-all duration-500" style={{ width: `${cvChunkProgress.current}%` }} />
                                                 </div>
                                             </div>
                                         )}
-                                        <p className="text-sm text-muted-foreground mt-4 italic">This uses AI and may take a moment per section.</p>
+                                        <p className="text-sm text-muted-foreground mt-4 italic">Large CVs may take 15-20 minutes. Please stay on this page.</p>
                                     </div>
                                 ) : hasExistingEntries ? (
                                     <div className="py-8">
@@ -1189,28 +1415,56 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                 />
 
                                 {cvUploading ? (
-                                    <div className="flex flex-col items-center py-8">
+                                    <div className="flex flex-col items-center py-8 text-foreground">
                                         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500/30 border-t-primary-500 mb-4"></div>
-                                        <h3 className="text-xl font-bold mb-1">{cvMessage}</h3>
+                                        <h3 className="text-xl font-bold mb-1 text-foreground">{cvMessage}</h3>
 
                                         {cvChunkProgress && (
                                             <div className="w-full max-w-sm mt-4 px-4">
                                                 <div className="flex justify-between text-sm mb-2">
-                                                    <span className="text-muted-foreground">Analyzing...</span>
-                                                    <span className="font-medium text-primary-400">{cvChunkProgress.current}%</span>
+                                                    <span className="text-gray-600 dark:text-gray-300">Analyzing...</span>
+                                                    <span className="font-medium text-primary-600 dark:text-primary-400">{cvChunkProgress.current}%</span>
                                                 </div>
-                                                <div className="h-2.5 w-full bg-border rounded-full overflow-hidden shadow-inner">
+                                                <div className="h-2.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden shadow-inner">
                                                     <div className="h-full bg-gradient-to-r from-primary-600 to-primary-400 transition-all duration-500" style={{ width: `${cvChunkProgress.current}%` }} />
-                                                </div>
-                                                <div className="flex justify-between items-center mt-3">
-                                                    <p className="text-[10px] text-muted-foreground bg-primary-500/10 px-2 py-0.5 rounded-full border border-primary-500/20">AI Enhanced</p>
                                                 </div>
                                             </div>
                                         )}
 
-                                        <div className="mt-8 p-4 rounded-xl bg-primary-500/5 border border-primary-500/10 text-center max-w-md">
-                                            <p className="text-sm text-primary-400 font-medium mb-1">⏱️ Estimated Time: 30-60s depends on CV size</p>
-                                            <p className="text-[11px] text-muted-foreground italic">Powered by GPT-4o-mini for speed and accuracy</p>
+                                        <div className="mt-8 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-center max-w-md">
+                                            <p className="text-sm text-amber-700 dark:text-amber-300 font-medium mb-1">⏱️ Large CVs take ~1 min per page (15-20 min for full professors)</p>
+                                            <p className="text-[11px] text-amber-600 dark:text-amber-400 italic">Please stay on this page until complete</p>
+                                        </div>
+                                    </div>
+                                ) : pasteMode ? (
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center">
+                                            <h3 className="font-medium">Paste CV Section Text</h3>
+                                            <button onClick={() => setPasteMode(false)} className="text-sm text-muted-foreground hover:text-foreground">
+                                                ← Back to file upload
+                                            </button>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground">
+                                            Copy text from your CV (e.g., Education, Experience sections) and paste below. 
+                                            <strong> Include the dates!</strong> For example: &quot;2018-2023&quot; or &quot;January 2020&quot;
+                                        </p>
+                                        <textarea
+                                            value={pasteText}
+                                            onChange={(e) => setPasteText(e.target.value)}
+                                            placeholder="Paste your CV section here...&#10;&#10;Example:&#10;Education:&#10;Medical School: Case Western Reserve University&#10;Cleveland, OH&#10;Degree: M.D., 1999&#10;&#10;Residency: The George Washington University Hospital&#10;Washington, DC, 1999-2005"
+                                            className="input w-full h-64 font-mono text-sm"
+                                        />
+                                        <div className="flex gap-3">
+                                            <button
+                                                onClick={uploadPastedText}
+                                                disabled={!pasteText.trim() || pasteText.length < 50}
+                                                className="btn-primary"
+                                            >
+                                                Import Pasted Text
+                                            </button>
+                                            <span className="text-sm text-muted-foreground self-center">
+                                                {pasteText.length} characters
+                                            </span>
                                         </div>
                                     </div>
                                 ) : (
@@ -1220,14 +1474,22 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                         </svg>
                                         <p className="text-lg font-medium mb-1">Drop your CV here</p>
                                         <p className="text-muted-foreground text-sm mb-4">or click to browse</p>
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            className="btn-secondary"
-                                        >
-                                            Select File
-                                        </button>
+                                        <div className="flex gap-3 justify-center">
+                                            <button
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="btn-secondary"
+                                            >
+                                                Select File
+                                            </button>
+                                            <button
+                                                onClick={() => setPasteMode(true)}
+                                                className="btn-ghost border border-border"
+                                            >
+                                                📋 Paste Text
+                                            </button>
+                                        </div>
                                         <p className="text-xs text-muted-foreground mt-3">
-                                            Supports PDF and Word (.doc, .docx)
+                                            Supports PDF, Word, or paste specific sections
                                         </p>
                                     </>
                                 )}
@@ -1527,13 +1789,29 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                         Some entries don&apos;t have dates. Add dates to keep your CV properly organized.
                     </p>
 
-                    <button
-                        onClick={fetchMissingDates}
-                        disabled={missingDatesLoading}
-                        className="btn-secondary mb-4"
-                    >
-                        {missingDatesLoading ? 'Loading...' : 'Find Entries Without Dates'}
-                    </button>
+                    <div className="flex flex-wrap gap-3 mb-4">
+                        <button
+                            onClick={fetchMissingDates}
+                            disabled={missingDatesLoading}
+                            className="btn-secondary"
+                        >
+                            {missingDatesLoading ? 'Loading...' : 'Find Entries Without Dates'}
+                        </button>
+                        <button
+                            onClick={autoFixDates}
+                            disabled={autoFixingDates}
+                            className="btn-primary"
+                        >
+                            {autoFixingDates ? 'Extracting Dates...' : '🔧 Auto-Extract Dates from Text'}
+                        </button>
+                    </div>
+
+                    {autoFixResult && (
+                        <div className="mb-4 p-3 rounded-lg bg-green-500/10 text-green-400 text-sm">
+                            ✅ Updated {autoFixResult.updated} entries with extracted dates
+                            {autoFixResult.skipped > 0 && ` (${autoFixResult.skipped} already had dates)`}
+                        </div>
+                    )}
 
                     {missingDatesEntries.length > 0 && (
                         <div className="space-y-3 max-h-[400px] overflow-y-auto">

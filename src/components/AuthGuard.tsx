@@ -40,6 +40,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
                 }
             } catch (error) {
                 console.error('Auth check failed:', error);
+                // Don't redirect immediately on network errors - might be temporary
+                if (error instanceof TypeError && error.message.includes('Load failed')) {
+                    console.warn('Network error during auth check, retrying...');
+                    // Retry once after a delay
+                    setTimeout(() => {
+                        checkAuth();
+                    }, 1000);
+                    return;
+                }
                 router.push('/login');
             } finally {
                 setLoading(false);

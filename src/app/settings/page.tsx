@@ -77,7 +77,6 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
 
     // Credits/Balance state
     const [balanceUsd, setBalanceUsd] = useState<number | null>(null);
-    const [balanceLoading, setBalanceLoading] = useState(false);
     const [checkoutLoading, setCheckoutLoading] = useState(false);
 
     // Deduplication state

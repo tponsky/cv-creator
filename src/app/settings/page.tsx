@@ -75,6 +75,11 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [pasteMode, setPasteMode] = useState(false);
     const [pasteText, setPasteText] = useState('');
 
+    // Credits/Balance state
+    const [balanceUsd, setBalanceUsd] = useState<number | null>(null);
+    const [balanceLoading, setBalanceLoading] = useState(false);
+    const [checkoutLoading, setCheckoutLoading] = useState(false);
+
     // Deduplication state
     interface DuplicateEntry {
         id: string;
@@ -224,8 +229,42 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             }
         };
         checkExistingEntries();
+
+        // Fetch user balance
+        const fetchBalance = async () => {
+            try {
+                const response = await fetch('/api/user/balance');
+                if (response.ok) {
+                    const data = await response.json();
+                    setBalanceUsd(data.balanceUsd ?? 0);
+                }
+            } catch (e) {
+                console.warn('Failed to fetch balance:', e);
+            }
+        };
+        fetchBalance();
     }, []);
 
+    // Handle adding credits via Stripe
+    const handleAddCredits = async () => {
+        setCheckoutLoading(true);
+        try {
+            const response = await fetch('/api/stripe/checkout', { method: 'POST' });
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to create checkout session');
+            }
+            const data = await response.json();
+            if (data.sessionUrl) {
+                window.location.href = data.sessionUrl;
+            }
+        } catch (e) {
+            console.error('Checkout error:', e);
+            alert('Failed to start checkout. Please try again.');
+        } finally {
+            setCheckoutLoading(false);
+        }
+    };
 
     // CV Upload handlers
     const handleDrag = (e: React.DragEvent) => {
@@ -401,7 +440,21 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
                         console.error(`[Upload] Chunk ${i + 1} failed:`, errorData);
-                        // Continue with other chunks even if one fails
+                        
+                        // Handle insufficient credits
+                        if (response.status === 402 || errorData.needsCredits) {
+                            setCvError('Insufficient credits. Please add more credits to continue.');
+                            setCvUploading(false);
+                            setCvChunkProgress(null);
+                            // Refresh balance
+                            const balRes = await fetch('/api/user/balance');
+                            if (balRes.ok) {
+                                const balData = await balRes.json();
+                                setBalanceUsd(balData.balanceUsd ?? 0);
+                            }
+                            return;
+                        }
+                        // Continue with other chunks if not a payment error
                         continue;
                     }
                     
@@ -410,6 +463,11 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                     totalDuplicatesSkipped += result.duplicatesSkipped || 0;
                     if (result.categoriesProcessed) {
                         allCategories.push(...result.categoriesProcessed);
+                    }
+                    
+                    // Update balance from response
+                    if (result.balanceRemaining !== undefined) {
+                        setBalanceUsd(result.balanceRemaining);
                     }
                     
                     console.log(`[Upload] Chunk ${i + 1} complete:`, result.entriesCreated, 'entries');
@@ -1263,6 +1321,37 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
 
             <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <h1 className="text-3xl font-bold mb-8">Settings</h1>
+
+                {/* Credits Balance Section */}
+                <div className="card mb-8 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-xl font-semibold flex items-center gap-2">
+                                💳 Credits Balance
+                            </h2>
+                            <p className="text-muted-foreground text-sm mt-1">
+                                Credits are used for AI-powered CV parsing and updates
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-3xl font-bold text-primary">
+                                ${balanceUsd !== null ? balanceUsd.toFixed(2) : '...'}
+                            </div>
+                            <button
+                                onClick={handleAddCredits}
+                                disabled={checkoutLoading}
+                                className="btn-primary mt-2 text-sm"
+                            >
+                                {checkoutLoading ? 'Loading...' : '+ Add $10 Credits'}
+                            </button>
+                        </div>
+                    </div>
+                    {balanceUsd !== null && balanceUsd < 0.50 && (
+                        <div className="mt-4 p-3 rounded-lg bg-yellow-500/10 text-yellow-400 text-sm">
+                            ⚠️ Low balance! Add credits to continue using CV parsing features.
+                        </div>
+                    )}
+                </div>
 
                 {/* Profile Information Section */}
                 <div className="card mb-8">

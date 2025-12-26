@@ -62,7 +62,43 @@ async function fetchWithRetry(url: string, maxRetries: number = 3): Promise<Resp
 }
 
 /**
- * Search PubMed for articles by author name
+ * Clean title for better PubMed searching
+ * Removes problematic characters and normalizes text
+ */
+function cleanTitleForSearch(title: string): string {
+    return title
+        // Remove author names in parentheses or after "with"
+        .replace(/\s+with\s+[A-Z][a-z]+\s+[A-Z]\.?\s+[A-Z][a-z]+.*/i, '')
+        // Remove content after colon (subtitles often cause issues)
+        .replace(/:\s*.{20,}$/, '')
+        // Remove special characters that break search
+        .replace(/['"''""]/g, '')
+        .replace(/[-–—]/g, ' ')
+        // Remove ordinal suffixes (25th, 1st, etc.)
+        .replace(/(\d+)(st|nd|rd|th)\b/gi, '$1')
+        // Remove common noise words at start
+        .replace(/^(The|A|An)\s+/i, '')
+        // Normalize whitespace
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Extract key search words from title
+ * Returns first N significant words
+ */
+function extractKeyWords(title: string, count: number = 6): string {
+    const stopWords = new Set(['the', 'a', 'an', 'of', 'in', 'for', 'on', 'to', 'with', 'and', 'or', 'at', 'by', 'from', 'as', 'is', 'are', 'was', 'were', 'using', 'based']);
+    const words = title.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !stopWords.has(w));
+    return words.slice(0, count).join(' ');
+}
+
+/**
+ * Search PubMed for articles by author name or title
+ * Uses multiple fallback strategies for title searches
  */
 export async function searchPubMed(
     query: string,
@@ -71,10 +107,50 @@ export async function searchPubMed(
 ): Promise<string[]> {
     // Format query for PubMed search
     let term = query.trim();
+    
     if (searchType === 'author') {
         term = `${term}[Author]`;
     } else if (searchType === 'title') {
-        term = `${term}[Title]`;
+        // Try multiple search strategies for titles
+        const strategies = [
+            // Strategy 1: Clean title with [Title] field
+            `${cleanTitleForSearch(query)}[Title]`,
+            // Strategy 2: First 50 chars of cleaned title
+            `${cleanTitleForSearch(query).substring(0, 50)}[Title]`,
+            // Strategy 3: Key words as phrase (no [Title] restriction)
+            `"${extractKeyWords(query, 5)}"`,
+            // Strategy 4: Key words without quotes (broader)
+            extractKeyWords(query, 4),
+        ];
+        
+        for (const strategy of strategies) {
+            let searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(strategy)}&retmax=${maxResults}&retmode=json`;
+            if (NCBI_API_KEY) {
+                searchUrl += `&api_key=${NCBI_API_KEY}`;
+            }
+            
+            try {
+                const response = await fetchWithRetry(searchUrl);
+                const data = await response.json();
+                const ids = data.esearchresult?.idlist || [];
+                
+                // If we found 1-10 results, that's a good match
+                if (ids.length > 0 && ids.length <= 10) {
+                    console.log(`[PubMed] Found ${ids.length} results with strategy: ${strategy.substring(0, 50)}...`);
+                    return ids;
+                }
+                
+                // If we found exactly 1, that's perfect
+                if (ids.length === 1) {
+                    return ids;
+                }
+            } catch (e) {
+                console.warn(`[PubMed] Strategy failed: ${strategy.substring(0, 30)}...`, e);
+            }
+        }
+        
+        // Last resort: return whatever the first strategy found
+        term = `${cleanTitleForSearch(query)}[Title]`;
     }
 
     let searchUrl = `${PUBMED_BASE_URL}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(term)}&retmax=${maxResults}&retmode=json`;
@@ -183,7 +259,33 @@ function decodeXmlEntities(text: string): string {
 }
 
 /**
+ * Calculate similarity score between two titles (0-1)
+ * Uses word overlap method
+ */
+function calculateTitleSimilarity(title1: string, title2: string): number {
+    const normalize = (s: string) => s.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2);
+    
+    const words1 = new Set(normalize(title1));
+    const words2 = new Set(normalize(title2));
+    
+    if (words1.size === 0 || words2.size === 0) return 0;
+    
+    let overlap = 0;
+    Array.from(words1).forEach(word => {
+        if (words2.has(word)) overlap++;
+    });
+    
+    // Jaccard-like similarity
+    const union = new Set([...Array.from(words1), ...Array.from(words2)]).size;
+    return overlap / union;
+}
+
+/**
  * Full search and fetch - returns complete article data
+ * For title searches, filters results by similarity score
  */
 export async function searchAndFetchArticles(
     query: string,
@@ -192,6 +294,27 @@ export async function searchAndFetchArticles(
 ): Promise<PubMedSearchResult> {
     const pmids = await searchPubMed(query, maxResults, searchType);
     const articles = await fetchArticleDetails(pmids);
+
+    // For title searches, filter and sort by similarity
+    if (searchType === 'title' && articles.length > 0) {
+        const scoredArticles = articles.map(article => ({
+            article,
+            similarity: calculateTitleSimilarity(query, article.title),
+        }));
+        
+        // Filter articles with at least 40% word overlap
+        const matchingArticles = scoredArticles
+            .filter(sa => sa.similarity >= 0.4)
+            .sort((a, b) => b.similarity - a.similarity)
+            .map(sa => sa.article);
+        
+        console.log(`[PubMed] Title search for "${query.substring(0, 40)}..." found ${articles.length} articles, ${matchingArticles.length} matched with >40% similarity`);
+        
+        return {
+            count: matchingArticles.length,
+            articles: matchingArticles,
+        };
+    }
 
     return {
         count: articles.length,

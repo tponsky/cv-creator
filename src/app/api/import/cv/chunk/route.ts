@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getUserFromRequest } from '@/lib/server-auth';
+import { checkBalance, deductAndLog, PRICING } from '@/lib/billing';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,6 +79,16 @@ export async function POST(request: NextRequest) {
         const user = await getUserFromRequest(request);
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Check user balance before processing
+        const { hasBalance, currentBalance } = await checkBalance(user.id, PRICING.CV_PARSE_PER_CHUNK);
+        if (!hasBalance) {
+            return NextResponse.json({ 
+                error: 'Insufficient credits. Please add more credits to continue.',
+                needsCredits: true,
+                currentBalance,
+            }, { status: 402 }); // 402 Payment Required
         }
 
         const body = await request.json();
@@ -336,6 +347,14 @@ ${text.substring(0, 12000)}`; // Limit to 12k chars per chunk
 
         console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] Created ${entriesCreated}, updated ${entriesUpdated} (added dates), skipped ${duplicatesSkipped} duplicates`);
 
+        // Deduct cost for this chunk
+        const { newBalance } = await deductAndLog(
+            user.id,
+            'cv_parse',
+            PRICING.CV_PARSE_PER_CHUNK,
+            `CV chunk ${chunkIndex + 1}/${totalChunks}: ${entriesCreated} entries created`
+        );
+
         return NextResponse.json({
             success: true,
             chunkIndex,
@@ -344,6 +363,7 @@ ${text.substring(0, 12000)}`; // Limit to 12k chars per chunk
             duplicatesSkipped,
             categoriesProcessed,
             isComplete: isLastChunk,
+            balanceRemaining: newBalance,
         });
 
     } catch (error) {

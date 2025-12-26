@@ -27,11 +27,16 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // Billing fields
+  balanceUsd       Float     @default(2.00) // Trial balance for new users
+  stripeCustomerId String?   // Stripe customer ID
+
   // Relations
   cv              CV?
   preferences     UserPreferences?
   pendingEntries  PendingEntry[]
   sessions        Session[]
+  usageRecords    Usage[]
 }
 
 model Session {
@@ -195,6 +200,26 @@ model DataSource {
 
   @@unique([userId, type])
   @@index([userId])
+}
+
+// ============================================
+// USAGE TRACKING (for billing)
+// ============================================
+
+model Usage {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  action      String   // 'cv_parse' | 'pubmed_search' | 'bio_generate' | 'deposit'
+  tokensUsed  Int      @default(0)
+  costUsd     Float    @default(0)
+  details     String?  @db.Text
+  
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
 }
 
 // ============================================

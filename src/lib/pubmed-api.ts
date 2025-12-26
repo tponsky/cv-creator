@@ -302,13 +302,14 @@ export async function searchAndFetchArticles(
             similarity: calculateTitleSimilarity(query, article.title),
         }));
         
-        // Filter articles with at least 40% word overlap
+        // Filter articles with at least 25% word overlap (lowered from 40%)
+        // Academic titles vary a lot - be more permissive
         const matchingArticles = scoredArticles
-            .filter(sa => sa.similarity >= 0.4)
+            .filter(sa => sa.similarity >= 0.25)
             .sort((a, b) => b.similarity - a.similarity)
             .map(sa => sa.article);
         
-        console.log(`[PubMed] Title search for "${query.substring(0, 40)}..." found ${articles.length} articles, ${matchingArticles.length} matched with >40% similarity`);
+        console.log(`[PubMed] Title search for "${query.substring(0, 40)}..." found ${articles.length} articles, ${matchingArticles.length} matched with >25% similarity`);
         
         return {
             count: matchingArticles.length,

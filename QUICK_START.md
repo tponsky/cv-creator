@@ -1,120 +1,123 @@
-# Quick Start - CV Upload Fix
+# Quick Start - CV Creator Deployment
 
-## What Was Fixed
+## Current Features
 
-✅ Enhanced worker error handling and logging  
-✅ Added health check endpoint (`/api/import/cv/health`)  
-✅ Improved upload error messages  
-✅ Better frontend error handling  
-✅ Graceful shutdown for worker  
-✅ Connection validation on startup  
+✅ Client-side CV parsing (chunked upload, no server timeouts)  
+✅ Manual PMID entry with PubMed search links  
+✅ Stripe billing integration  
+✅ Health check endpoint (`/api/import/cv/health`)  
+
+## Server Requirements
+
+**Minimum:** t3.small (2GB RAM) with 2-4GB swap  
+**Recommended:** t3.medium (4GB RAM) for smoother Docker builds
+
+### Add Swap Space (Required for t3.small)
+```bash
+# SSH to server
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
+```
 
 ## Quick Deployment
 
-### Option 1: Use the deployment script
+### From Local Machine (via SSH)
 ```bash
-./deploy.sh
+# Pull and rebuild with memory limit
+ssh -i "your-key.pem" ec2-user@YOUR_IP "cd cv-creator && git pull && DOCKER_BUILDKIT=1 docker-compose build --no-cache app && docker-compose up -d"
 ```
 
-### Option 2: Manual deployment
+### On Server Directly
 ```bash
-# Build and restart
-docker-compose build
-docker-compose down
+cd cv-creator
+git pull
+DOCKER_BUILDKIT=1 docker-compose build --no-cache app
 docker-compose up -d
-
-# Check worker is running
-docker-compose ps worker
-
-# Monitor worker logs
-docker-compose logs -f worker
 ```
 
-## Verify It's Working
+### ⚠️ Avoid Server Crashes During Build
+On low-memory servers (2GB), Docker builds can crash the server.
 
-### 1. Check Health Endpoint
+**Safe build process:**
 ```bash
-curl http://your-server/api/import/cv/health
+# 1. Stop containers to free memory
+docker-compose stop app worker
+
+# 2. Build with memory limit
+DOCKER_BUILDKIT=1 docker-compose build app
+
+# 3. Start everything
+docker-compose up -d
 ```
 
-Expected response:
-```json
-{
-  "status": "healthy",
-  "checks": {
-    "redis": { "status": "ok" },
-    "database": { "status": "ok" },
-    "queue": { "status": "ok", "message": "..." },
-    "workers": { "status": "ok", "message": "..." }
-  }
-}
-```
+## Environment Variables
 
-### 2. Check Worker is Running
+Required in `.env`:
 ```bash
-docker-compose ps worker
-# Should show "Up" status
-
-docker-compose logs worker | tail -20
-# Should show: "[Worker] CV processing worker started and listening for jobs..."
+OPENAI_API_KEY=sk-...
+NEXTAUTH_SECRET=your-secret
+NEXTAUTH_URL=https://cv.staycurrentai.com
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+NCBI_API_KEY=your-ncbi-key  # For faster PubMed API
 ```
 
-### 3. Test Upload
-1. Go to Settings page
-2. Upload a CV file
-3. Check browser console for any errors
-4. Monitor worker logs: `docker-compose logs -f worker`
+## Verify Deployment
 
-## Common Issues & Quick Fixes
-
-### Worker Not Running
+### Check Containers
 ```bash
-docker-compose up -d worker
-docker-compose logs worker
+docker-compose ps
+# All should show "Up"
 ```
 
-### Redis Connection Error
+### Check Health
 ```bash
-docker-compose restart redis
-docker-compose logs redis
+curl http://localhost:3001/api/import/cv/health
 ```
 
-### Jobs Stuck
+### Check Logs
 ```bash
-# Check queue status
-docker-compose exec redis redis-cli
-KEYS bull:cv-processing:*
-
-# Restart worker
-docker-compose restart worker
+docker-compose logs -f app
 ```
 
-## Files Changed
+## Common Issues
 
-- `src/lib/worker.ts` - Enhanced error handling
-- `src/app/api/import/cv/upload/route.ts` - Better error messages
-- `src/app/api/import/cv/health/route.ts` - NEW health check endpoint
-- `src/app/settings/page.tsx` - Improved frontend error handling
+### Server Crashes During Docker Build
+- Add more swap space (see above)
+- Stop containers before building
+- Use `DOCKER_BUILDKIT=1` for efficient builds
 
-## Monitoring
-
-### Watch Worker Logs
+### Site Won't Load (503/502)
 ```bash
-docker-compose logs -f worker
+# Restart Apache
+sudo systemctl restart httpd
+
+# Check Docker containers
+docker-compose ps
+docker-compose up -d
 ```
 
-### Watch All Logs
-```bash
-docker-compose logs -f
+### PMID Enrichment
+PMIDs are now added manually:
+1. Click "🔍 Search PubMed" to open PubMed with title
+2. Find article, copy PMID
+3. Paste and click Save
+
+## Files Changed Recently
+
+- `src/app/settings/page.tsx` - Manual PMID entry UI
+- `src/lib/billing.ts` - Stripe billing functions
+- `prisma/schema.prisma` - User balance, Usage tracking
+
+## Apache Configuration
+
+Located at: `/etc/httpd/conf.d/cv.staycurrentai.com.conf`
+
+Key settings:
+```apache
+ProxyTimeout 300
+Timeout 300
 ```
-
-### Check Queue Status
-```bash
-curl http://your-server/api/import/cv/health | jq '.checks.queue'
-```
-
-## Need Help?
-
-See `CV_UPLOAD_TROUBLESHOOTING.md` for detailed troubleshooting guide.
-
-

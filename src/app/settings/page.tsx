@@ -130,8 +130,9 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
     const [pmidStats, setPmidStats] = useState<{ total: number; withPmid: number; withoutPmid: number } | null>(null);
     const [pmidLoading, setPmidLoading] = useState(false);
     const [pmidEnrichMessage, setPmidEnrichMessage] = useState('');
-    const [selectedPmidEntries, setSelectedPmidEntries] = useState<Set<string>>(new Set());
-    const [batchEnriching, setBatchEnriching] = useState(false);
+    // Manual PMID entry state
+    const [manualPmidInputs, setManualPmidInputs] = useState<Record<string, string>>({});
+    const [savingPmid, setSavingPmid] = useState<string | null>(null);
 
     const navUser = { name: profile.name || 'User', email: profile.email };
 
@@ -786,8 +787,6 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
             if (res.ok) {
                 const entries = data.entries || [];
                 setPmidEntries(entries);
-                // Auto-select all entries for batch processing
-                setSelectedPmidEntries(new Set(entries.map((e: PmidEntry) => e.id)));
                 setPmidStats({
                     total: data.total,
                     withPmid: data.withPmid,
@@ -799,7 +798,7 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         } finally {
             setPmidLoading(false);
         }
-    }, [setPmidLoading, setPmidEnrichMessage, setPmidEntries, setSelectedPmidEntries, setPmidStats]);
+    }, [setPmidLoading, setPmidEnrichMessage, setPmidEntries, setPmidStats]);
 
     // Auto-trigger scan if we just entered Step 3 of the wizard
     useEffect(() => {
@@ -808,86 +807,60 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
         }
     }, [wizardStep, pmidStats, pmidLoading, fetchPmidEntries]);
 
-    // Batch enrich selected entries
-    const batchEnrichPmids = async () => {
-        if (selectedPmidEntries.size === 0) return;
-
-        setBatchEnriching(true);
-        setPmidEnrichMessage('Starting batch processing...');
-
-        const entriesToProcess = pmidEntries.filter(e => selectedPmidEntries.has(e.id));
-        let successCount = 0;
-        let failCount = 0;
-
-        // Process ONE at a time to respect PubMed rate limits (3 req/sec max)
-        // Each entry requires 2 requests (search + save), so 1 entry per 1.5 seconds
-        for (let i = 0; i < entriesToProcess.length; i++) {
-            const entry = entriesToProcess[i];
-            const remaining = entriesToProcess.length - i;
-            const estimatedMins = Math.ceil(remaining * 1.5 / 60);
-            setPmidEnrichMessage(`Processing ${i + 1} of ${entriesToProcess.length} (~${estimatedMins} min remaining)...`);
-
-            try {
-                // Search PubMed for this title
-                const searchRes = await fetch('/api/cv/enrich-pmid', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title: entry.title }),
-                });
-                
-                // Wait 600ms after search to respect rate limits
-                await new Promise(r => setTimeout(r, 600));
-                
-                const searchData = await searchRes.json();
-
-                if (searchRes.ok && searchData.results && searchData.results.length > 0) {
-                    // Apply the best match (first result)
-                    const bestMatch = searchData.results[0];
-                    const applyRes = await fetch('/api/cv/enrich-pmid', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            entryId: entry.id,
-                            pmid: bestMatch.pmid,
-                            doi: bestMatch.doi
-                        }),
-                    });
-
-                    // Wait 600ms after save
-                    await new Promise(r => setTimeout(r, 600));
-
-                    if (applyRes.ok) {
-                        successCount++;
-                        // Update UI immediately for this entry
-                        setPmidEntries(prev => prev.filter(e => e.id !== entry.id));
-                        setSelectedPmidEntries(prev => {
-                            const next = new Set(prev);
-                            next.delete(entry.id);
-                            return next;
-                        });
-                        setPmidStats(prev => prev ? ({
-                            ...prev,
-                            withPmid: prev.withPmid + 1,
-                            withoutPmid: prev.withoutPmid - 1,
-                        }) : null);
-                    } else {
-                        failCount++;
-                    }
-                } else {
-                    failCount++;
-                    // Still wait to not hammer the API
-                    await new Promise(r => setTimeout(r, 400));
-                }
-            } catch (err) {
-                console.error('Batch enrich error for', entry.id, err);
-                failCount++;
-                // Wait on error too
-                await new Promise(r => setTimeout(r, 1000));
-            }
+    // Save manually entered PMID
+    const saveManualPmid = async (entryId: string) => {
+        const pmid = manualPmidInputs[entryId]?.trim();
+        if (!pmid) {
+            setPmidEnrichMessage('Please enter a PMID');
+            return;
         }
 
-        setPmidEnrichMessage(`Finished: ${successCount} enriched, ${failCount} not found/failed`);
-        setBatchEnriching(false);
+        setSavingPmid(entryId);
+        setPmidEnrichMessage('Saving...');
+
+        try {
+            const res = await fetch('/api/cv/enrich-pmid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entryId, pmid }),
+            });
+
+            if (res.ok) {
+                // Remove from list and update stats
+                setPmidEntries(prev => prev.filter(e => e.id !== entryId));
+                setPmidStats(prev => prev ? ({
+                    ...prev,
+                    withPmid: prev.withPmid + 1,
+                    withoutPmid: prev.withoutPmid - 1,
+                }) : null);
+                // Clear input
+                setManualPmidInputs(prev => {
+                    const next = { ...prev };
+                    delete next[entryId];
+                    return next;
+                });
+                setPmidEnrichMessage('✓ PMID saved!');
+            } else {
+                const data = await res.json();
+                setPmidEnrichMessage(`Error: ${data.error || 'Failed to save'}`);
+            }
+        } catch (err) {
+            console.error('Save PMID error:', err);
+            setPmidEnrichMessage('Network error - please try again');
+        } finally {
+            setSavingPmid(null);
+        }
+    };
+
+    // Generate PubMed search URL for a title
+    const getPubMedSearchUrl = (title: string) => {
+        // Clean the title for search
+        const cleanTitle = title
+            .replace(/[^\w\s]/g, ' ')  // Remove special chars
+            .replace(/\s+/g, ' ')       // Collapse spaces
+            .trim()
+            .slice(0, 200);             // Limit length
+        return `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(cleanTitle)}`;
     };
 
     const searchPubMed = async () => {
@@ -1140,34 +1113,15 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
                                     </div>
 
                                     {pmidEntries.length > 0 ? (
-                                        <div className="space-y-4">
-                                            <div className="flex items-center justify-between p-4 border rounded-lg bg-blue-50/50">
-                                                <div>
-                                                    <h4 className="font-semibold text-blue-900">Auto-Enrichment</h4>
-                                                    <p className="text-sm text-blue-700">Found {pmidEntries.length} entries we can check against PubMed.</p>
-                                                    {pmidEnrichMessage && <p className="text-sm font-medium mt-1">{pmidEnrichMessage}</p>}
-                                                </div>
-                                                <button
-                                                    onClick={batchEnrichPmids}
-                                                    disabled={batchEnriching || selectedPmidEntries.size === 0}
-                                                    className="btn-primary whitespace-nowrap"
-                                                >
-                                                    {batchEnriching ? 'Processing...' : 'Auto-Add PMIDs to All'}
-                                                </button>
-                                            </div>
-
-                                            <div className="max-h-60 overflow-y-auto border rounded-md p-2 text-sm bg-muted/10">
-                                                {pmidEntries.map(entry => (
-                                                    <div key={entry.id} className="p-2 border-b last:border-0 flex justify-between">
-                                                        <span className="truncate flex-1 pr-4">{entry.title}</span>
-                                                        <span className="text-muted-foreground text-xs whitespace-nowrap">Missing</span>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                        <div className="p-4 border rounded-lg bg-amber-50/50">
+                                            <h4 className="font-semibold text-amber-900">⚠️ {pmidEntries.length} entries missing PMIDs</h4>
+                                            <p className="text-sm text-amber-700 mt-1">
+                                                You can add PMIDs manually in the &quot;Entries Missing PMID&quot; section below.
+                                            </p>
                                         </div>
                                     ) : (
                                         <div className="text-center text-green-500 py-4">
-                                            <p>All scanned entries have PMIDs or none found.</p>
+                                            <p>✓ All entries have PMIDs!</p>
                                         </div>
                                     )}
 
@@ -1965,69 +1919,54 @@ function SettingsContent({ initialUser }: { initialUser: UserProfile }) {
 
                     {pmidEntries.length > 0 && (
                         <div className="space-y-3">
-                            {/* Batch controls */}
-                            <div className="flex items-center justify-between gap-4 p-3 rounded-lg bg-secondary/30">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedPmidEntries.size === pmidEntries.length && pmidEntries.length > 0}
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                setSelectedPmidEntries(new Set(pmidEntries.map(e => e.id)));
-                                            } else {
-                                                setSelectedPmidEntries(new Set());
-                                            }
-                                        }}
-                                        className="w-4 h-4 rounded"
-                                    />
-                                    <span className="text-sm">Select All ({pmidEntries.length})</span>
-                                </label>
-                                <button
-                                    onClick={batchEnrichPmids}
-                                    disabled={selectedPmidEntries.size === 0 || batchEnriching}
-                                    className="btn-primary text-sm"
-                                >
-                                    {batchEnriching
-                                        ? `Enriching... (${selectedPmidEntries.size})`
-                                        : `Auto-Add PMIDs (${selectedPmidEntries.size} selected)`}
-                                </button>
-                            </div>
-
-                            <p className="text-xs text-muted-foreground">
-                                Select entries and click &quot;Auto-Add PMIDs&quot; to find and apply PMIDs automatically.
+                            <p className="text-sm text-muted-foreground">
+                                For each entry: click &quot;Search PubMed&quot; to find it, then paste the PMID number.
                             </p>
 
-                            {/* Entry list with checkboxes */}
-                            <div className="max-h-[400px] overflow-y-auto space-y-2">
+                            {/* Entry list with manual PMID input */}
+                            <div className="max-h-[500px] overflow-y-auto space-y-3">
                                 {pmidEntries.map(entry => (
-                                    <label
+                                    <div
                                         key={entry.id}
-                                        className={`p-3 rounded-lg block cursor-pointer ${selectedPmidEntries.has(entry.id)
-                                            ? 'bg-primary/10 border border-primary/30'
-                                            : 'bg-secondary/50'
-                                            }`}
+                                        className="p-3 rounded-lg bg-secondary/50 border border-border"
                                     >
-                                        <div className="flex items-start gap-2">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedPmidEntries.has(entry.id)}
-                                                onChange={(e) => {
-                                                    const newSet = new Set(selectedPmidEntries);
-                                                    if (e.target.checked) {
-                                                        newSet.add(entry.id);
-                                                    } else {
-                                                        newSet.delete(entry.id);
-                                                    }
-                                                    setSelectedPmidEntries(newSet);
-                                                }}
-                                                className="mt-1 w-4 h-4 rounded"
-                                            />
-                                            <div className="flex-1">
-                                                <p className="font-medium text-sm">{entry.title}</p>
-                                                <p className="text-xs text-muted-foreground">{entry.categoryName}</p>
+                                        <div className="flex-1 mb-2">
+                                            <p className="font-medium text-sm">{entry.title}</p>
+                                            <p className="text-xs text-muted-foreground">{entry.categoryName}</p>
+                                        </div>
+                                        
+                                        {/* Search and Input Row */}
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <a
+                                                href={getPubMedSearchUrl(entry.title)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="btn-secondary text-xs py-1 px-2 inline-flex items-center gap-1"
+                                            >
+                                                🔍 Search PubMed
+                                            </a>
+                                            
+                                            <div className="flex items-center gap-1 flex-1 min-w-[200px]">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Paste PMID (e.g., 12345678)"
+                                                    value={manualPmidInputs[entry.id] || ''}
+                                                    onChange={(e) => setManualPmidInputs(prev => ({
+                                                        ...prev,
+                                                        [entry.id]: e.target.value
+                                                    }))}
+                                                    className="input text-sm py-1 px-2 flex-1"
+                                                />
+                                                <button
+                                                    onClick={() => saveManualPmid(entry.id)}
+                                                    disabled={savingPmid === entry.id || !manualPmidInputs[entry.id]?.trim()}
+                                                    className="btn-primary text-xs py-1 px-3"
+                                                >
+                                                    {savingPmid === entry.id ? '...' : 'Save'}
+                                                </button>
                                             </div>
                                         </div>
-                                    </label>
+                                    </div>
                                 ))}
                             </div>
                         </div>

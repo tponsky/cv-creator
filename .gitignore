@@ -36,3 +36,12 @@ next-env.d.ts
 # Prisma
 /prisma/*.db
 /prisma/*.db-journal
+
+# --- secrets: never commit these ---
+.env.*
+!.env.example
+*.key
+credentials*
+*credentials*
+secrets*
+deployment_notes.txt

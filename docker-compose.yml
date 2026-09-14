@@ -24,7 +24,7 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
-      - RESEND_API_KEY=<RESEND_API_KEY_REDACTED>
+      - RESEND_API_KEY=${RESEND_API_KEY}
     depends_on:
       db:
         condition: service_healthy
